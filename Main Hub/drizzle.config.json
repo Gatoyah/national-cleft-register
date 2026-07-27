@@ -1,7 +1,7 @@
 {
-  "dialect": "postgresql",
+  "dialect": "sqlite",
   "schema": "./src/db/schema.ts",
   "dbCredentials": {
-    "url": "${DATABASE_URL}"
+    "url": "file:main_hub.db"
   }
 }

@@ -206,8 +206,8 @@ export const facilities = pgTable("facilities", {
   hasInternet: boolean("has_internet").default(false),
   parentFacilityId: integer("parent_facility_id"),
   isActive: boolean("is_active").default(true),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const users = pgTable("users", {
@@ -222,8 +222,8 @@ export const users = pgTable("users", {
   professionalId: varchar("professional_id", { length: 50 }),
   isActive: boolean("is_active").default(true),
   lastLoginAt: timestamp("last_login_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const auditLogs = pgTable("audit_logs", {
@@ -236,7 +236,7 @@ export const auditLogs = pgTable("audit_logs", {
   newValues: jsonb("new_values"),
   ipAddress: varchar("ip_address", { length: 45 }),
   userAgent: text("user_agent"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const sessions = pgTable("sessions", {
@@ -248,7 +248,7 @@ export const sessions = pgTable("sessions", {
   expiresAt: timestamp("expires_at").notNull(),
   ipAddress: varchar("ip_address", { length: 45 }),
   userAgent: text("user_agent"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const apiKeys = pgTable("api_keys", {
@@ -261,7 +261,7 @@ export const apiKeys = pgTable("api_keys", {
   label: varchar("label", { length: 100 }).notNull(),
   isActive: boolean("is_active").default(true),
   lastUsedAt: timestamp("last_used_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 // ============================================================================
@@ -310,8 +310,8 @@ export const patients = pgTable("patients", {
   isLostToFollowUp: boolean("is_lost_to_follow_up").default(false),
   lostToFollowUpDate: date("lost_to_follow_up_date"),
   // Metadata
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 // ============================================================================
@@ -366,8 +366,8 @@ export const birthHistory = pgTable("birth_history", {
   birthFacility: varchar("birth_facility", { length: 255 }),
   // Data entry
   enteredByUserId: integer("entered_by_user_id").references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 // ============================================================================
@@ -416,8 +416,8 @@ export const diagnoses = pgTable("diagnoses", {
   diagnosedByUserId: integer("diagnosed_by_user_id").references(() => users.id),
   diagnosedAtFacilityId: integer("diagnosed_at_facility_id").references(() => facilities.id),
   isPrimaryDiagnosis: boolean("is_primary_diagnosis").default(true),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 // ============================================================================
@@ -457,8 +457,8 @@ export const nutritionAssessments = pgTable("nutrition_assessments", {
   // Data entry
   assessedByUserId: integer("assessed_by_user_id").references(() => users.id),
   facilityId: integer("facility_id").references(() => facilities.id),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 // ============================================================================
@@ -518,8 +518,8 @@ export const surgeries = pgTable("surgeries", {
   immediatePostOpPhoto: text("immediate_post_op_photo"),
   // Facility
   facilityId: integer("facility_id").references(() => facilities.id),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const surgicalComplications = pgTable("surgical_complications", {
@@ -533,7 +533,7 @@ export const surgicalComplications = pgTable("surgical_complications", {
   managementDescription: text("management_description"),
   resolved: boolean("resolved").default(false),
   resolvedDate: date("resolved_date"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 // ============================================================================
@@ -567,8 +567,8 @@ export const speechAssessments = pgTable("speech_assessments", {
   furtherAssessmentNeeded: boolean("further_assessment_needed"),
   recommendations: text("recommendations"),
   clinicalNotes: text("clinical_notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const speechTherapySessions = pgTable("speech_therapy_sessions", {
@@ -588,7 +588,7 @@ export const speechTherapySessions = pgTable("speech_therapy_sessions", {
   homeExercisesGiven: boolean("home_exercises_given"),
   homeExercisesDetails: text("home_exercises_details"),
   nextSessionDate: date("next_session_date"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const orthodonticAssessments = pgTable("orthodontic_assessments", {
@@ -618,8 +618,8 @@ export const orthodonticAssessments = pgTable("orthodontic_assessments", {
   abgTimingRecommendation: varchar("abg_timing_recommendation", { length: 50 }),
   abgReadiness: boolean("abg_readiness"),
   clinicalNotes: text("clinical_notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const entAssessments = pgTable("ent_assessments", {
@@ -650,8 +650,8 @@ export const entAssessments = pgTable("ent_assessments", {
   hearingAidRecommended: boolean("hearing_aid_recommended"),
   hearingAidProvided: boolean("hearing_aid_provided"),
   clinicalNotes: text("clinical_notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const dentalAssessments = pgTable("dental_assessments", {
@@ -681,8 +681,8 @@ export const dentalAssessments = pgTable("dental_assessments", {
   fillingsPlaced: integer("fillings_placed"),
   clinicalNotes: text("clinical_notes"),
   nextVisitDate: date("next_visit_date"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const psychosocialAssessments = pgTable("psychosocial_assessments", {
@@ -716,8 +716,8 @@ export const psychosocialAssessments = pgTable("psychosocial_assessments", {
   referralMade: boolean("referral_made"),
   referralDetails: text("referral_details"),
   clinicalNotes: text("clinical_notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 // ============================================================================
@@ -763,8 +763,8 @@ export const outcomes = pgTable("outcomes", {
   // Photos
   outcomePhotoFrontal: text("outcome_photo_frontal"),
   outcomePhotoLateral: text("outcome_photo_lateral"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 // ============================================================================
@@ -790,8 +790,8 @@ export const appointments = pgTable("appointments", {
   rescheduledToId: integer("rescheduled_to_id"),
   notes: text("notes"),
   createdByUserId: integer("created_by_user_id").references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const followUpAlerts = pgTable("follow_up_alerts", {
@@ -809,8 +809,8 @@ export const followUpAlerts = pgTable("follow_up_alerts", {
   resolvedDate: date("resolved_date"),
   resolvedByUserId: integer("resolved_by_user_id").references(() => users.id),
   resolution: text("resolution"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const contactAttempts = pgTable("contact_attempts", {
@@ -826,7 +826,7 @@ export const contactAttempts = pgTable("contact_attempts", {
   successful: boolean("successful").default(false),
   outcome: text("outcome"),
   nextActionPlanned: text("next_action_planned"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const outreachVisits = pgTable("outreach_visits", {
@@ -846,7 +846,7 @@ export const outreachVisits = pgTable("outreach_visits", {
   assessmentNotes: text("assessment_notes"),
   appointmentScheduled: boolean("appointment_scheduled").default(false),
   newAppointmentId: integer("new_appointment_id").references(() => appointments.id),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const patientTransfers = pgTable("patient_transfers", {
@@ -863,7 +863,7 @@ export const patientTransfers = pgTable("patient_transfers", {
   transferAccepted: boolean("transfer_accepted"),
   acceptedDate: date("accepted_date"),
   notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 // ============================================================================
@@ -899,8 +899,8 @@ export const researchProjects = pgTable("research_projects", {
   // Files
   protocolDocument: text("protocol_document"),
   ethicsApprovalDocument: text("ethics_approval_document"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const dataExtracts = pgTable("data_extracts", {
@@ -925,7 +925,7 @@ export const dataExtracts = pgTable("data_extracts", {
   extractFormat: varchar("extract_format", { length: 50 }),
   extractFileHash: varchar("extract_file_hash", { length: 100 }),
   deIdentified: boolean("de_identified").default(true),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const publications = pgTable("publications", {
@@ -944,8 +944,8 @@ export const publications = pgTable("publications", {
   ncrAcknowledged: boolean("ncr_acknowledged"),
   impactFactor: decimal("impact_factor", { precision: 5, scale: 3 }),
   citations: integer("citations"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 // ============================================================================
@@ -958,7 +958,7 @@ export const systemSettings = pgTable("system_settings", {
   settingValue: text("setting_value"),
   description: text("description"),
   updatedByUserId: integer("updated_by_user_id").references(() => users.id),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const dataQualityReports = pgTable("data_quality_reports", {
@@ -975,7 +975,7 @@ export const dataQualityReports = pgTable("data_quality_reports", {
   missingConsent: integer("missing_consent"),
   reportData: jsonb("report_data"),
   generatedByUserId: integer("generated_by_user_id").references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 // ============================================================================

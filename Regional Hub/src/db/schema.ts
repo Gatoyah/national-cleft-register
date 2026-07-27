@@ -123,8 +123,8 @@ export const facilityConfig = sqliteTable("facility_config", {
   apiKeyHash: varchar("api_key_hash"),
   lastSyncAt: timestamp("last_sync_at"),
   syncEnabled: boolean("sync_enabled").default(true),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const users = sqliteTable("users", {
@@ -141,10 +141,10 @@ export const users = sqliteTable("users", {
   lockedUntil: timestamp("locked_until"),
   lastLoginAt: timestamp("last_login_at"),
   lastLoginIp: varchar("last_login_ip"),
-  passwordChangedAt: timestamp("password_changed_at").defaultNow(),
+  passwordChangedAt: timestamp("password_changed_at").default(sql`(strftime('%s', 'now'))`),
   mustChangePassword: boolean("must_change_password").default(false),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const sessions = sqliteTable("sessions", {
@@ -154,7 +154,7 @@ export const sessions = sqliteTable("sessions", {
   ipAddress: varchar("ip_address"),
   userAgent: text("user_agent"),
   expiresAt: timestamp("expires_at").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const auditLogs = sqliteTable("audit_logs", {
@@ -167,7 +167,7 @@ export const auditLogs = sqliteTable("audit_logs", {
   newValues: jsonb("new_values"),
   ipAddress: varchar("ip_address"),
   userAgent: text("user_agent"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const patients = sqliteTable("patients", {
@@ -195,8 +195,8 @@ export const patients = sqliteTable("patients", {
   syncedAt: timestamp("synced_at"),
   syncError: text("sync_error"),
   registeredByUserId: integer("registered_by_user_id").references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const diagnoses = sqliteTable("diagnoses", {
@@ -219,8 +219,8 @@ export const diagnoses = sqliteTable("diagnoses", {
   syncStatus: syncStatusEnum("sync_status").default("pending"),
   syncedAt: timestamp("synced_at"),
   diagnosedByUserId: integer("diagnosed_by_user_id").references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const surgeries = sqliteTable("surgeries", {
@@ -240,8 +240,8 @@ export const surgeries = sqliteTable("surgeries", {
   dischargeCondition: varchar("discharge_condition"),
   syncStatus: syncStatusEnum("sync_status").default("pending"),
   syncedAt: timestamp("synced_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const syncQueue = sqliteTable("sync_queue", {
@@ -256,7 +256,7 @@ export const syncQueue = sqliteTable("sync_queue", {
   lastAttemptAt: timestamp("last_attempt_at"),
   lastError: text("last_error"),
   status: syncStatusEnum("status").default("pending"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const rateLimits = sqliteTable("rate_limits", {
@@ -264,8 +264,8 @@ export const rateLimits = sqliteTable("rate_limits", {
   identifier: varchar("identifier").notNull(),
   endpoint: varchar("endpoint").notNull(),
   requestCount: integer("request_count").default(1),
-  windowStart: timestamp("window_start").defaultNow().notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  windowStart: timestamp("window_start").default(sql`(strftime('%s', 'now'))`).notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const blockedIps = sqliteTable("blocked_ips", {
@@ -273,7 +273,7 @@ export const blockedIps = sqliteTable("blocked_ips", {
   ipAddress: varchar("ip_address").notNull().unique(),
   reason: text("reason"),
   blockedUntil: timestamp("blocked_until"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
 export const patientsRelations = relations(patients, ({ one, many }) => ({

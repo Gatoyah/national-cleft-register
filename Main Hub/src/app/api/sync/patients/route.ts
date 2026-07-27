@@ -11,19 +11,19 @@ const syncPatientSchema = z.object({
   facilityApiKey: z.string().min(1),
   patients: z.array(z.object({
     localId: z.string(), // ID from regional hub
-    ncrId: z.string().optional(),
+    ncrId: z.string().nullable().optional(),
     firstName: z.string(),
     lastName: z.string(),
-    middleName: z.string().optional(),
+    middleName: z.string().nullable().optional(),
     dateOfBirth: z.string(),
     sex: z.enum(["male", "female", "intersex"]),
     regionOfResidence: z.string(),
-    districtOfResidence: z.string().optional(),
-    townVillage: z.string().optional(),
+    districtOfResidence: z.string().nullable().optional(),
+    townVillage: z.string().nullable().optional(),
     caregiverName: z.string(),
-    caregiverPhone: z.string().optional(),
-    caregiverRelationship: z.string().optional(),
-    cleftType: z.string().optional(),
+    caregiverPhone: z.string().nullable().optional(),
+    caregiverRelationship: z.string().nullable().optional(),
+    cleftType: z.string().nullable().optional(),
     createdAt: z.string(), // ISO timestamp from regional hub
   })),
 });
