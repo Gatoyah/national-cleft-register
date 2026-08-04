@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
+import { useCsrf } from "@/hooks/useCsrf";
 
 const roles = [
   { value: "admin", label: "Administrator - Full system access" },
@@ -28,6 +29,7 @@ export default function NewUserPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [facilities, setFacilities] = useState<Facility[]>([]);
+  const { getCsrfHeaders } = useCsrf();
 
   useEffect(() => {
     // Fetch facilities
@@ -52,7 +54,7 @@ export default function NewUserPage() {
     try {
       const res = await fetch("/api/users", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getCsrfHeaders(),
         body: JSON.stringify(data),
       });
 

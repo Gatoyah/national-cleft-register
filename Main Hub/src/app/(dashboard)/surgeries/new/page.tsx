@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Button } from "@/components/ui/Button";
+import { useCsrf } from "@/hooks/useCsrf";
 
 const surgeryTypes = [
   { value: "primary_lip_repair", label: "Primary Lip Repair" },
@@ -53,6 +54,7 @@ export default function NewSurgeryPage() {
   const [error, setError] = useState("");
   const [patientId, setPatientId] = useState(patientIdParam || "");
   const [patientInfo, setPatientInfo] = useState<{ ncrId: string; firstName: string; lastName: string } | null>(null);
+  const { getCsrfHeaders } = useCsrf();
 
   useEffect(() => {
     if (patientId) {
@@ -84,7 +86,7 @@ export default function NewSurgeryPage() {
     try {
       const res = await fetch(`/api/patients/${patientId}/surgeries`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getCsrfHeaders(),
         body: JSON.stringify(data),
       });
 

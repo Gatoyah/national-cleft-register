@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Button } from "@/components/ui/Button";
+import { useCsrf } from "@/hooks/useCsrf";
 
 const cleftTypes = [
   { value: "cleft_lip_only", label: "Cleft Lip Only" },
@@ -45,6 +46,7 @@ export default function NewDiagnosisPage({ params }: PageProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [cleftType, setCleftType] = useState("");
+  const { getCsrfHeaders } = useCsrf();
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -57,7 +59,7 @@ export default function NewDiagnosisPage({ params }: PageProps) {
     try {
       const res = await fetch(`/api/patients/${id}/diagnoses`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getCsrfHeaders(),
         body: JSON.stringify(data),
       });
 

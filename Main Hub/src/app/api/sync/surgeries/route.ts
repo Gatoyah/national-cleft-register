@@ -11,18 +11,19 @@ const syncSurgerySchema = z.object({
   facilityApiKey: z.string().min(1),
   surgeries: z.array(z.object({
     localId: z.string(),
-    patientNcrId: z.string(),
+    patientNcrId: z.string().nullable().optional(),
+    patientLocalId: z.string().nullable().optional(),
     surgeryDate: z.string(),
     surgeryType: z.string(),
-    isPrimarySurgery: z.boolean().optional(),
-    lipTechnique: z.string().optional(),
-    palateTechnique: z.string().optional(),
-    surgeonName: z.string().optional(),
-    durationMinutes: z.number().optional(),
-    complications: z.boolean().optional(),
-    complicationsDetails: z.string().optional(),
-    dischargeDate: z.string().optional(),
-    dischargeCondition: z.string().optional(),
+    isPrimarySurgery: z.boolean().nullable().optional(),
+    lipTechnique: z.string().nullable().optional(),
+    palateTechnique: z.string().nullable().optional(),
+    surgeonName: z.string().nullable().optional(),
+    durationMinutes: z.number().nullable().optional(),
+    complications: z.boolean().nullable().optional(),
+    complicationsDetails: z.string().nullable().optional(),
+    dischargeDate: z.string().nullable().optional(),
+    dischargeCondition: z.string().nullable().optional(),
     createdAt: z.string(),
   })),
 });
@@ -81,7 +82,12 @@ export async function POST(request: NextRequest) {
           userId: null,
           action: "sync_create_surgery",
           tableName: "surgeries",
-          newValues: { localId: surgery.localId, patientNcrId: surgery.patientNcrId, facilityId: keyResult.facilityId },
+          newValues: {
+            localId: surgery.localId,
+            patientNcrId: surgery.patientNcrId || null,
+            patientLocalId: surgery.patientLocalId || null,
+            facilityId: keyResult.facilityId
+          },
         });
       } catch (err) {
         results.errors.push(`Failed to sync surgery ${surgery.localId}: ${err instanceof Error ? err.message : "Unknown error"}`);

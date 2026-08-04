@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { getRegionLabel } from "@/lib/utils";
+import { useCsrf } from "@/hooks/useCsrf";
 
 const facilityTypes = [
   { value: "co_hub", label: "Co-Hub" },
@@ -37,6 +38,7 @@ export default function NewHubPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const { getCsrfHeaders } = useCsrf();
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -60,7 +62,7 @@ export default function NewHubPage() {
     try {
       const res = await fetch("/api/hubs/register", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getCsrfHeaders(),
         body: JSON.stringify(body),
       });
 

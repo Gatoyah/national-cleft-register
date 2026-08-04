@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Button } from "@/components/ui/Button";
+import { useCsrf } from "@/hooks/useCsrf";
 
 const visitTypes = [
   { value: "scheduled", label: "Scheduled Visit" },
@@ -52,6 +53,7 @@ export default function NewAppointmentPage() {
   
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const { getCsrfHeaders } = useCsrf();
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -64,7 +66,7 @@ export default function NewAppointmentPage() {
     try {
       const res = await fetch("/api/appointments", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getCsrfHeaders(),
         body: JSON.stringify(data),
       });
 
