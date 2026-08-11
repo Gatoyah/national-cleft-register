@@ -83,14 +83,24 @@ export async function POST(request: NextRequest) {
 
         if (response.ok) {
           const data = await response.json();
-          results.patients.success = data.results?.created || 0;
+          results.patients.success = (data.results?.created || 0) + (data.results?.updated || 0);
 
-          // Mark as synced
+          // Build a lookup of localId -> assigned ncrId from the Main Hub's response
+          const ncrIdByLocalId = new Map<string, string>(
+            (data.results?.patients || []).map((p: { localId: string; ncrId: string }) => [p.localId, p.ncrId])
+          );
+
+          // Mark as synced and record the NCR ID the Main Hub assigned
           for (const item of patientItems) {
             await db.delete(syncQueue).where(eq(syncQueue.id, item.id));
+            const assignedNcrId = ncrIdByLocalId.get(item.recordLocalId);
             await db
               .update(patients)
-              .set({ syncStatus: "synced", syncedAt: new Date() })
+              .set({
+                syncStatus: "synced",
+                syncedAt: new Date(),
+                ...(assignedNcrId ? { ncrId: assignedNcrId } : {}),
+              })
               .where(eq(patients.localId, item.recordLocalId));
           }
         } else {

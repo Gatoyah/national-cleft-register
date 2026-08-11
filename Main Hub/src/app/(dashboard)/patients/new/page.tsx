@@ -58,7 +58,9 @@ export default function NewPatientPage() {
     setError("");
 
     const formData = new FormData(e.currentTarget);
-    const data = Object.fromEntries(formData.entries());
+    const data = Object.fromEntries(
+      Array.from(formData.entries()).filter(([, value]) => value !== "")
+    );
 
     try {
       const res = await fetch("/api/patients", {
@@ -135,7 +137,7 @@ export default function NewPatientPage() {
 
       <form onSubmit={handleSubmit}>
         {/* Step 1: Patient Information */}
-        {step === 1 && (
+        <div className={step === 1 ? "" : "hidden"}>
           <Card>
             <CardHeader>
               <CardTitle>Patient Information</CardTitle>
@@ -166,10 +168,10 @@ export default function NewPatientPage() {
               </div>
             </CardContent>
           </Card>
-        )}
+        </div>
 
         {/* Step 2: Location */}
-        {step === 2 && (
+        <div className={step === 2 ? "" : "hidden"}>
           <Card>
             <CardHeader>
               <CardTitle>Location & Residence</CardTitle>
@@ -226,10 +228,10 @@ export default function NewPatientPage() {
               </div>
             </CardContent>
           </Card>
-        )}
+        </div>
 
         {/* Step 3: Caregiver */}
-        {step === 3 && (
+        <div className={step === 3 ? "" : "hidden"}>
           <Card>
             <CardHeader>
               <CardTitle>Caregiver Information</CardTitle>
@@ -282,10 +284,10 @@ export default function NewPatientPage() {
               </div>
             </CardContent>
           </Card>
-        )}
+        </div>
 
         {/* Step 4: Consent */}
-        {step === 4 && (
+        <div className={step === 4 ? "" : "hidden"}>
           <Card>
             <CardHeader>
               <CardTitle>Consent & Authorization</CardTitle>
@@ -379,7 +381,7 @@ export default function NewPatientPage() {
               </div>
             </CardContent>
           </Card>
-        )}
+        </div>
       </form>
     </div>
   );

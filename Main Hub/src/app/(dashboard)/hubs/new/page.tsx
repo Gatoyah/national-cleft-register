@@ -38,6 +38,8 @@ export default function NewHubPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [issuedApiKey, setIssuedApiKey] = useState("");
+  const [issuedCode, setIssuedCode] = useState("");
   const { getCsrfHeaders } = useCsrf();
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -71,13 +73,42 @@ export default function NewHubPage() {
         throw new Error(data.error || "Failed to register hub");
       }
 
-      setSuccessMessage("Regional hub registered successfully. Redirecting...");
-      setTimeout(() => router.push("/hubs"), 1200);
+      setSuccessMessage("Regional hub registered successfully.");
+      setIssuedApiKey(data.apiKey || "");
+      setIssuedCode(data.code || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setIsLoading(false);
     }
+  }
+
+  if (issuedApiKey) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">Regional Hub Registered</h1>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Sync API Key for {issuedCode}</CardTitle>
+            <CardDescription>
+              Copy this key now — it will not be shown again. Enter it, along with the facility
+              code &quot;{issuedCode}&quot; and this Main Hub&apos;s URL, into the Regional
+              Hub&apos;s Sync Settings page to enable synchronization.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg font-mono text-sm break-all">
+              {issuedApiKey}
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={() => router.push("/hubs")}>Done</Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (

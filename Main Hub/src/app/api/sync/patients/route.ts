@@ -3,6 +3,7 @@ import { db, patients } from "@/db";
 import { validateApiKey } from "@/lib/auth";
 import { sanitizeObject } from "@/lib/sanitize";
 import { logAudit } from "@/lib/audit";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 // Schema for incoming patient sync data from regional hubs
@@ -56,16 +57,31 @@ export async function POST(request: NextRequest) {
       created: 0,
       updated: 0,
       errors: [] as string[],
+      patients: [] as { localId: string; id: number; ncrId: string }[],
     };
 
     for (const patient of validatedData.patients) {
       try {
+        // Idempotency: if this regional record was already synced, don't duplicate it
+        const [existing] = await db
+          .select({ id: patients.id, ncrId: patients.ncrId })
+          .from(patients)
+          .where(eq(patients.sourceLocalId, patient.localId))
+          .limit(1);
+
+        if (existing) {
+          results.updated++;
+          results.patients.push({ localId: patient.localId, id: existing.id, ncrId: existing.ncrId });
+          continue;
+        }
+
         // Generate NCR ID if not provided
         const ncrId = patient.ncrId || `NCR-${new Date().getFullYear()}-${Math.floor(Math.random() * 99999).toString().padStart(5, "0")}`;
 
         // Insert patient (in production, would check for duplicates first)
-        await db.insert(patients).values({
+        const [created] = await db.insert(patients).values({
           ncrId,
+          sourceLocalId: patient.localId,
           firstName: patient.firstName,
           lastName: patient.lastName,
           middleName: patient.middleName || null,
@@ -78,9 +94,10 @@ export async function POST(request: NextRequest) {
           caregiverPhone: patient.caregiverPhone || null,
           caregiverRelationship: patient.caregiverRelationship || null,
           createdAt: new Date(patient.createdAt),
-        } as any);
+        } as any).returning({ id: patients.id, ncrId: patients.ncrId });
 
         results.created++;
+        results.patients.push({ localId: patient.localId, id: created.id, ncrId: created.ncrId });
 
         // Log the sync action using logAudit
         await logAudit({

@@ -38,9 +38,9 @@ async function getReportData() {
       count: count(),
     }).from(surgeries).groupBy(surgeries.surgeryType).orderBy(desc(count())),
     db.select({
-      month: sql<string>`to_char(${patients.createdAt}, 'YYYY-MM')`,
+      month: sql<string>`strftime('%Y-%m', ${patients.createdAt}, 'unixepoch')`,
       count: count(),
-    }).from(patients).groupBy(sql`to_char(${patients.createdAt}, 'YYYY-MM')`).orderBy(desc(sql`to_char(${patients.createdAt}, 'YYYY-MM')`)).limit(12),
+    }).from(patients).groupBy(sql`strftime('%Y-%m', ${patients.createdAt}, 'unixepoch')`).orderBy(desc(sql`strftime('%Y-%m', ${patients.createdAt}, 'unixepoch')`)).limit(12),
   ]);
 
   return {

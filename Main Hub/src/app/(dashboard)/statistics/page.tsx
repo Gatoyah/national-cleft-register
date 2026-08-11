@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/Button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table";
 import { getRegionLabel, getCleftTypeLabel, getSurgeryTypeLabel } from "@/lib/utils";
+import { YearSelect } from "@/components/YearSelect";
 
 export const dynamic = "force-dynamic";
 
@@ -145,17 +146,7 @@ export default async function StatisticsPage({ searchParams }: PageProps) {
           <p className="text-gray-500 mt-1">Cleft birth and surgery data for Smile Train reporting</p>
         </div>
         <div className="flex items-center gap-4">
-          <select
-            defaultValue={selectedYear}
-            onChange={(e) => {
-              window.location.href = `/statistics?year=${e.target.value}`;
-            }}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
-          >
-            {yearOptions.map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+          <YearSelect years={yearOptions} selectedYear={selectedYear} />
           <Button variant="outline">
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, facilities } from "@/db";
-import { requireRole } from "@/lib/auth";
+import { db, facilities, apiKeys } from "@/db";
+import { requireRole, generateApiKey } from "@/lib/auth";
 import { sanitizeObject } from "@/lib/sanitize";
 import { z } from "zod";
 
@@ -41,7 +41,25 @@ export async function POST(request: NextRequest) {
       })
       .returning();
 
-    return NextResponse.json(newHub, { status: 201 });
+    // Generate a sync API key for this hub. The raw key is only ever
+    // returned here, once — only its hash is stored.
+    const { rawKey, keyHash, keyPrefix } = generateApiKey();
+    await db.insert(apiKeys).values({
+      facilityId: newHub.id,
+      keyHash,
+      keyPrefix,
+      label: `${newHub.code} Default Key`,
+      isActive: true,
+    });
+
+    return NextResponse.json(
+      {
+        ...newHub,
+        apiKey: rawKey,
+        apiKeyNote: "Save this API key now — it will not be shown again. Enter it in the Regional Hub's sync settings.",
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("Register hub error:", error);
 

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table";
 import { Button } from "@/components/ui/Button";
 import { getRegionLabel, getCleftTypeLabel, getSurgeryTypeLabel } from "@/lib/utils";
+import { YearSelect } from "@/components/YearSelect";
 
 export const dynamic = "force-dynamic";
 
@@ -62,15 +63,7 @@ export default async function StatisticsPage({ searchParams }: PageProps) {
           <p className="text-gray-500 mt-1">Cleft birth and surgery data for {selectedYear}</p>
         </div>
         <div className="flex items-center gap-4">
-          <select
-            defaultValue={selectedYear}
-            onChange={(e) => window.location.href = `/statistics?year=${e.target.value}`}
-            className="px-4 py-2 border border-gray-300 rounded-lg"
-          >
-            {years.map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+          <YearSelect years={years} selectedYear={selectedYear} />
           <Button variant="outline">Export CSV</Button>
         </div>
       </div>

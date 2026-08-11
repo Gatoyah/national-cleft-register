@@ -61,7 +61,9 @@ export default function NewAppointmentPage() {
     setError("");
 
     const formData = new FormData(e.currentTarget);
-    const data = Object.fromEntries(formData.entries());
+    const data = Object.fromEntries(
+      Array.from(formData.entries()).filter(([, value]) => value !== "")
+    );
 
     try {
       const res = await fetch("/api/appointments", {

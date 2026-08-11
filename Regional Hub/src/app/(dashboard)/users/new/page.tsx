@@ -26,7 +26,9 @@ export default function NewUserPage() {
     setError("");
 
     const formData = new FormData(e.currentTarget);
-    const data = Object.fromEntries(formData.entries());
+    const data = Object.fromEntries(
+      Array.from(formData.entries()).filter(([, value]) => value !== "")
+    );
 
     if (data.password !== data.confirmPassword) {
       setError("Passwords do not match");

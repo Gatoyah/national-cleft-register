@@ -29,6 +29,10 @@ export default function SyncPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(true);
+  const [isEditingConfig, setIsEditingConfig] = useState(false);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [configSuccess, setConfigSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     setIsOnline(navigator.onLine);
@@ -88,6 +92,42 @@ export default function SyncPage() {
 
   const hasPendingData = status && (status.stats.pendingQueue > 0 || status.stats.pendingPatients > 0 || status.stats.pendingSurgeries > 0);
 
+  async function handleSaveConfig(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setIsSavingConfig(true);
+    setConfigError(null);
+    setConfigSuccess(null);
+
+    const formData = new FormData(e.currentTarget);
+    const body = {
+      facilityCode: formData.get("facilityCode"),
+      facilityName: formData.get("facilityName"),
+      mainHubUrl: formData.get("mainHubUrl"),
+      apiKey: formData.get("apiKey"),
+    };
+
+    try {
+      const res = await fetch("/api/sync/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to save configuration");
+      }
+
+      setConfigSuccess("Sync configuration saved.");
+      setIsEditingConfig(false);
+      fetchStatus();
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : "An error occurred");
+    } finally {
+      setIsSavingConfig(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -116,37 +156,119 @@ export default function SyncPage() {
       {status?.facility && (
         <Card>
           <CardHeader>
-            <CardTitle>Facility Configuration</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>Facility Configuration</CardTitle>
+              {!isEditingConfig && (
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => {
+                    setIsEditingConfig(true);
+                    setConfigSuccess(null);
+                    setConfigError(null);
+                  }}
+                >
+                  Edit
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <p className="text-sm text-gray-500">Facility</p>
-                <p className="font-medium">{status.facility.name}</p>
-                <p className="text-sm text-gray-400 font-mono">{status.facility.code}</p>
+            {configSuccess && !isEditingConfig && (
+              <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm">
+                {configSuccess}
               </div>
-              <div>
-                <p className="text-sm text-gray-500">Region</p>
-                <p className="font-medium capitalize">{status.facility.region.replace(/_/g, " ")}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Main Hub</p>
-                {status.facility.mainHubConfigured ? (
-                  <Badge variant="success">Configured</Badge>
-                ) : (
-                  <Badge variant="danger">Not Configured</Badge>
-                )}
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Last Sync</p>
-                <p className="font-medium">
-                  {status.facility.lastSyncAt 
-                    ? new Date(status.facility.lastSyncAt).toLocaleString() 
-                    : "Never"
-                  }
+            )}
+            {isEditingConfig ? (
+              <form onSubmit={handleSaveConfig} className="space-y-4">
+                <p className="text-sm text-gray-500">
+                  Enter the facility code and API key issued by the Main Hub when this
+                  regional hub was registered (Main Hub &rarr; Regional Hubs &rarr; Register
+                  New Regional Hub).
                 </p>
+                {configError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                    {configError}
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Facility Code</label>
+                    <input
+                      name="facilityCode"
+                      required
+                      defaultValue={status.facility.code}
+                      className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                      placeholder="e.g. KATH"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Facility Name</label>
+                    <input
+                      name="facilityName"
+                      defaultValue={status.facility.name}
+                      className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Main Hub URL</label>
+                  <input
+                    name="mainHubUrl"
+                    required
+                    defaultValue="http://localhost:3000"
+                    className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                    placeholder="http://localhost:3000"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+                  <input
+                    name="apiKey"
+                    required
+                    className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 font-mono text-sm"
+                    placeholder="Paste the key issued by the Main Hub"
+                  />
+                </div>
+                <div className="flex justify-end gap-3">
+                  <Button variant="outline" type="button" onClick={() => setIsEditingConfig(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" isLoading={isSavingConfig}>
+                    Save Configuration
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <p className="text-sm text-gray-500">Facility</p>
+                  <p className="font-medium">{status.facility.name}</p>
+                  <p className="text-sm text-gray-400 font-mono">{status.facility.code}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Region</p>
+                  <p className="font-medium capitalize">{status.facility.region.replace(/_/g, " ")}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Main Hub</p>
+                  {status.facility.mainHubConfigured ? (
+                    <Badge variant="success">Configured</Badge>
+                  ) : (
+                    <Badge variant="danger">Not Configured</Badge>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Last Sync</p>
+                  <p className="font-medium">
+                    {status.facility.lastSyncAt
+                      ? new Date(status.facility.lastSyncAt).toLocaleString()
+                      : "Never"
+                    }
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       )}

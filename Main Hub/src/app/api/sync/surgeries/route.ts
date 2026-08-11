@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, surgeries } from "@/db";
+import { db, surgeries, patients } from "@/db";
 import { validateApiKey } from "@/lib/auth";
 import { sanitizeObject } from "@/lib/sanitize";
 import { logAudit } from "@/lib/audit";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 // Schema for incoming surgery sync data from regional hubs
@@ -59,10 +60,38 @@ export async function POST(request: NextRequest) {
 
     for (const surgery of validatedData.surgeries) {
       try {
-        // In production, look up patient ID by NCR ID
-        // For now, just store the surgery
+        // Resolve the Main Hub patient this surgery belongs to. Prefer the
+        // NCR ID (assigned once the patient has synced); fall back to the
+        // Regional Hub's local ID, which we store as sourceLocalId on sync.
+        let resolvedPatientId: number | null = null;
+
+        if (surgery.patientNcrId) {
+          const [byNcrId] = await db
+            .select({ id: patients.id })
+            .from(patients)
+            .where(eq(patients.ncrId, surgery.patientNcrId))
+            .limit(1);
+          resolvedPatientId = byNcrId?.id ?? null;
+        }
+
+        if (!resolvedPatientId && surgery.patientLocalId) {
+          const [byLocalId] = await db
+            .select({ id: patients.id })
+            .from(patients)
+            .where(eq(patients.sourceLocalId, surgery.patientLocalId))
+            .limit(1);
+          resolvedPatientId = byLocalId?.id ?? null;
+        }
+
+        if (!resolvedPatientId) {
+          results.errors.push(
+            `Failed to sync surgery ${surgery.localId}: patient not found (sync the patient before their surgeries)`
+          );
+          continue;
+        }
+
         await db.insert(surgeries).values({
-          patientId: 1, // Would be looked up
+          patientId: resolvedPatientId,
           surgeryDate: surgery.surgeryDate,
           surgeryType: surgery.surgeryType as typeof surgeries.surgeryType.enumValues[number],
           isPrimarySurgery: surgery.isPrimarySurgery ?? true,

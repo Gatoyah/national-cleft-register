@@ -271,6 +271,7 @@ export const apiKeys = pgTable("api_keys", {
 export const patients = pgTable("patients", {
   id: serial("id").primaryKey(),
   ncrId: varchar("ncr_id", { length: 20 }).notNull().unique(), // NCR-YYYY-NNNNN
+  sourceLocalId: varchar("source_local_id", { length: 64 }), // Regional Hub's local ID, for sync lookups
   ghanaCardNumber: varchar("ghana_card_number", { length: 20 }),
   nhisNumber: varchar("nhis_number", { length: 20 }),
   firstName: varchar("first_name", { length: 100 }).notNull(),
