@@ -23,3 +23,7 @@ tsconfig.tsbuildinfo
 # Misc
 .DS_Store
 *.log
+
+# Packaged deployment output (regenerate with package-for-deployment.sh)
+/dist/
+

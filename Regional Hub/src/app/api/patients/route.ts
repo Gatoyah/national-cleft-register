@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
         caregiverPhone2: validatedData.caregiverPhone2 || null,
         registeredByUserId: user.id,
         syncStatus: "pending",
-      })
+      } as any)
       .returning();
 
     // Create diagnosis if cleft type provided
