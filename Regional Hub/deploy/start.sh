@@ -5,6 +5,7 @@
 
 set -e
 cd "$(dirname "$0")"
+APPDIR="$(pwd)"
 
 if [ ! -f ".env" ]; then
   echo
@@ -18,6 +19,12 @@ NODE_BIN="./node/bin/node"
 if [ ! -x "$NODE_BIN" ]; then
   NODE_BIN="node"
 fi
+
+# Force an absolute database path based on THIS folder's real location,
+# regardless of what's written in .env. This avoids a relative "file:" path
+# being resolved inconsistently between the setup script and the compiled
+# server bundle.
+export DATABASE_URL="file:$APPDIR/local.db"
 
 if [ ! -f "local.db" ]; then
   echo "First run detected -- setting up the database..."

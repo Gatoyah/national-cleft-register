@@ -1,10 +1,26 @@
 // Database initialization script for Regional Hub
 import { createClient } from "@libsql/client";
+import { readFileSync, existsSync } from "fs";
 
-const client = createClient({ url: "file:./local.db" });
+// Minimal .env loader (avoids depending on the "dotenv" package, which isn't
+// bundled in the standalone production build).
+if (existsSync(".env")) {
+  for (const line of readFileSync(".env", "utf-8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const value = trimmed.slice(eq + 1).trim();
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
+
+const databaseUrl = process.env.DATABASE_URL || "file:local.db";
+const client = createClient({ url: databaseUrl });
 
 async function initDb() {
-  console.log("Creating database tables...");
+  console.log(`Creating database tables (${databaseUrl}) ...`);
   
   await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS facility_config (

@@ -17,6 +17,12 @@ if not exist ".env" (
 set NODE_BIN=node\node.exe
 if not exist "%NODE_BIN%" set NODE_BIN=node
 
+REM Force an absolute database path based on THIS folder's real location,
+REM regardless of what's written in .env. This avoids a relative "file:"
+REM path being resolved inconsistently between the setup script and the
+REM compiled server bundle.
+set DATABASE_URL=file:%~dp0local.db
+
 if not exist "local.db" (
     echo First run detected -- setting up the database...
     "%NODE_BIN%" init-db.mjs

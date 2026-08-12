@@ -19,6 +19,12 @@ REM back to a system-installed "node" on PATH.
 set NODE_BIN=node\node.exe
 if not exist "%NODE_BIN%" set NODE_BIN=node
 
+REM Force an absolute database path based on THIS folder's real location,
+REM regardless of what's written in .env. This avoids a relative "file:"
+REM path being resolved inconsistently between the migration script and the
+REM compiled server bundle.
+set DATABASE_URL=file:%~dp0main_hub.db
+
 if not exist "main_hub.db" (
     echo First run detected -- setting up the database...
     "%NODE_BIN%" migrate.mjs
