@@ -56,12 +56,17 @@ package folder:
 node\node.exe -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Run it three times (Main Hub needs 2 values, Regional Hub needs 1 of its own plus its
-own session/csrf secrets) and paste each result in place of the matching placeholder.
+Run it as many times as you have placeholders to fill in, pasting each result in place
+of the matching `replace-with-...` text.
+
+You don't need to touch `DATABASE_URL` — `start.bat`/`start.sh` set it automatically
+based on wherever you've actually placed this folder, so it works correctly no matter
+where you install it.
 
 For the **Regional Hub**, also set `MAIN_HUB_URL` to wherever the Main Hub will actually
 be reachable from this machine (e.g. `http://192.168.1.10:3000` on a hospital LAN, or
-`http://localhost:3000` if — unusually — both run on the same machine).
+a public HTTPS URL if connecting across separate sites — see the root `README.md` for
+more on cross-site setups).
 
 ## Step 3 — Copy to the target machine
 
@@ -127,6 +132,13 @@ as a shared server others connect to over the hospital network.
 
 - **"node is not recognized..."** — the `node\` folder is missing or misplaced; see
   Step 1. Make sure the path is exactly `main-hub\node\node.exe`.
+- **"Cannot find module '@libsql/win32-x64-msvc'" (or a similar `@libsql`/`sharp`
+  platform error)** — the package you're running was built on a different operating
+  system than this machine. Get a package rebuilt/downloaded for the right OS; this
+  isn't something you can fix by editing files.
+- **"Invalid key length" / `ERR_CRYPTO_INVALID_KEYLEN`** — `ENCRYPTION_KEY` in `.env`
+  (Regional Hub only) isn't a valid 64-character hex string. Regenerate it with the
+  command in Step 3 and paste the *entire* output, with no extra characters.
 - **Port already in use** — another program (or a previous, still-running copy of this
   app) is using port 3000/3001. Close it, or edit `start.bat`/`start.sh` to use a
   different `PORT` value.
