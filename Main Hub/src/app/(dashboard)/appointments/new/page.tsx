@@ -1,5 +1,7 @@
 "use client";
 
+import { describeApiError } from "@/components/AuthShell";
+
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -74,7 +76,8 @@ export default function NewAppointmentPage() {
 
       if (!res.ok) {
         const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to schedule appointment");
+        const { message, details } = describeApiError(errorData);
+        throw new Error(details.length ? `${message}: ${details.join("; ")}` : message || "Failed to schedule appointment");
       }
 
       router.push("/appointments");

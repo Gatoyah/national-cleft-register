@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -10,6 +10,14 @@ export default function LoginPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // A brand-new server has no accounts yet: send the operator to the setup wizard.
+  useEffect(() => {
+    fetch("/api/auth/setup")
+      .then((r) => r.json())
+      .then((d) => d.needsSetup && router.replace("/setup"))
+      .catch(() => {});
+  }, [router]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -28,12 +36,12 @@ export default function LoginPage() {
         }),
       });
 
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error || "Login failed");
       }
 
-      router.push("/dashboard");
+      router.push(data.mustChangePassword ? "/account?mustChange=1" : "/dashboard");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");

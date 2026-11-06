@@ -1,100 +1,60 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, appointments } from "@/db";
-import { requireAuth, requireRole, getSessionToken } from "@/lib/auth";
+import { db, appointments, patients } from "@/db";
+import { requirePermission, requireMutation } from "@/lib/auth";
 import { sanitizeObject } from "@/lib/sanitize";
-import { validateCsrfToken } from "@/lib/csrf";
 import { logAudit } from "@/lib/audit";
+import { apiError, isoDate, optionalText } from "@/lib/api";
 import { z } from "zod";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 const createAppointmentSchema = z.object({
-  patientId: z.coerce.number().min(1, "Patient ID is required"),
-  scheduledDate: z.string().min(1, "Date is required"),
-  scheduledTime: z.string().optional(),
+  patientId: z.coerce.number().int().positive("Patient ID is required"),
+  scheduledDate: isoDate,
+  scheduledTime: optionalText(10),
   visitType: z.enum(["scheduled", "unscheduled", "outreach", "telehealth"]),
-  appointmentType: z.string().optional(),
-  department: z.string().optional(),
-  notes: z.string().optional(),
+  appointmentType: optionalText(100),
+  department: optionalText(100),
+  notes: optionalText(5000),
 });
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await requireRole("admin", "clinician", "surgeon", "data_clerk");
+    const user = await requireMutation(request, "appointments.create");
     if (user instanceof NextResponse) return user;
 
-    // Validate CSRF token
-    const csrfToken = request.headers.get("x-csrf-token");
-    const sessionToken = await getSessionToken();
-    if (!csrfToken || !sessionToken || !validateCsrfToken(csrfToken, sessionToken)) {
-      return NextResponse.json(
-        { error: "Invalid or missing CSRF token" },
-        { status: 403 }
-      );
-    }
+    const d = createAppointmentSchema.parse(sanitizeObject(await request.json()));
+    const [patient] = await db.select({ id: patients.id }).from(patients).where(eq(patients.id, d.patientId)).limit(1);
+    if (!patient) return NextResponse.json({ error: "Patient not found" }, { status: 404 });
 
-    const body = await request.json();
-    const sanitizedBody = sanitizeObject(body);
-    const validatedData = createAppointmentSchema.parse(sanitizedBody);
-
-    const [newAppointment] = await db
+    const [row] = await db
       .insert(appointments)
       .values({
-        patientId: validatedData.patientId,
-        scheduledDate: validatedData.scheduledDate,
-        scheduledTime: validatedData.scheduledTime || null,
-        visitType: validatedData.visitType,
-        appointmentType: validatedData.appointmentType || null,
-        department: validatedData.department || null,
-        notes: validatedData.notes || null,
+        patientId: d.patientId,
+        scheduledDate: d.scheduledDate,
+        scheduledTime: d.scheduledTime || null,
+        visitType: d.visitType,
+        appointmentType: d.appointmentType || null,
+        department: d.department || null,
+        notes: d.notes || null,
         status: "scheduled",
+        facilityId: user.facilityId,
         createdByUserId: user.id,
       })
       .returning();
 
-    // Log action to audit log
-    await logAudit({
-      userId: user.id,
-      action: "create_appointment",
-      tableName: "appointments",
-      recordId: newAppointment.id,
-      newValues: sanitizedBody,
-    });
-
-    return NextResponse.json(newAppointment, { status: 201 });
+    await logAudit({ userId: user.id, action: "create_appointment", tableName: "appointments", recordId: row.id, newValues: { patientId: d.patientId, scheduledDate: d.scheduledDate } });
+    return NextResponse.json(row, { status: 201 });
   } catch (error) {
-    console.error("Error creating appointment:", error);
-    
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Validation error", details: error.issues },
-        { status: 400 }
-      );
-    }
-
-    return NextResponse.json(
-      { error: "Failed to create appointment" },
-      { status: 500 }
-    );
+    return apiError(error, "Failed to create appointment");
   }
 }
 
 export async function GET() {
   try {
-    const user = await requireAuth();
+    const user = await requirePermission("appointments.view");
     if (user instanceof NextResponse) return user;
-
-    const appointmentList = await db
-      .select()
-      .from(appointments)
-      .orderBy(desc(appointments.scheduledDate))
-      .limit(100);
-
-    return NextResponse.json(appointmentList);
+    return NextResponse.json(await db.select().from(appointments).orderBy(desc(appointments.scheduledDate)).limit(200));
   } catch (error) {
-    console.error("Error fetching appointments:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch appointments" },
-      { status: 500 }
-    );
+    return apiError(error, "Failed to fetch appointments");
   }
 }

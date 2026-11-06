@@ -1,5 +1,8 @@
 "use client";
 
+import { useCsrf } from "@/hooks/useCsrf";
+import { describeApiError } from "@/components/AuthShell";
+
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -20,6 +23,7 @@ const surgeryTypes = [
 ];
 
 export default function NewSurgeryPage() {
+  const { getCsrfHeaders } = useCsrf();
   const router = useRouter();
   const searchParams = useSearchParams();
   const patientIdParam = searchParams.get("patientId");
@@ -51,13 +55,14 @@ export default function NewSurgeryPage() {
     try {
       const res = await fetch("/api/surgeries", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getCsrfHeaders(),
         body: JSON.stringify({ ...data, patientId }),
       });
 
       if (!res.ok) {
         const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to record surgery");
+        const { message, details } = describeApiError(errorData);
+        throw new Error(details.length ? `${message}: ${details.join("; ")}` : message || "Failed to record surgery");
       }
 
       router.push(`/patients/${patientId}`);

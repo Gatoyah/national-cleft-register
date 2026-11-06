@@ -1,3 +1,5 @@
+import { requirePageUser } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
 import { db, patients, surgeries, diagnoses, syncQueue, facilityConfig } from "@/db";
 import { eq, count, desc, gte, sql } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -65,9 +67,12 @@ async function getRecentPatients() {
 }
 
 export default async function DashboardPage() {
+  const user = await requirePageUser();
+  // Roles without patient access (viewer) only see aggregate numbers.
+  const showPatients = hasPermission(user.role, "patients.view");
   const [stats, recentPatients] = await Promise.all([
     getStats(),
-    getRecentPatients(),
+    showPatients ? getRecentPatients() : Promise.resolve([]),
   ]);
 
   const totalCleftCases = stats.cleftTypes.reduce((sum, d) => sum + d.count, 0);
@@ -196,6 +201,7 @@ export default async function DashboardPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Registrations */}
+        {showPatients && (
         <div className="lg:col-span-2">
           <Card>
             <CardHeader>
@@ -247,6 +253,7 @@ export default async function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+        )}
 
         {/* Cleft Type Distribution */}
         <div>

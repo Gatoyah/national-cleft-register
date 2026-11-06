@@ -1,167 +1,77 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, surgeries, patients, syncQueue } from "@/db";
-import { getCurrentUser, canRecordSurgery } from "@/lib/auth";
-import { logAudit, addSecurityHeaders, sanitizeObject, checkRateLimit } from "@/lib/security";
+import { db, surgeries, patients } from "@/db";
+import { requirePermission, requireMutation } from "@/lib/auth";
+import { sanitizeObject } from "@/lib/sanitize";
+import { logAudit } from "@/lib/audit";
+import { apiError } from "@/lib/api";
+import { createSurgerySchema } from "@/lib/schemas";
+import { enqueue, syncSoon } from "@/lib/sync";
 import { desc, eq, count } from "drizzle-orm";
-import { z } from "zod";
-
-const createSurgerySchema = z.object({
-  patientId: z.coerce.number().min(1),
-  surgeryDate: z.string().min(1),
-  surgeryType: z.enum([
-    "primary_lip_repair", "primary_palate_repair", "secondary_lip_revision",
-    "alveolar_bone_graft", "pharyngoplasty", "fistula_repair", "rhinoplasty", "other"
-  ]),
-  isPrimarySurgery: z.coerce.boolean().optional(),
-  procedureDescription: z.string().max(2000).optional(),
-  surgeonName: z.string().max(255).optional(),
-  durationMinutes: z.coerce.number().optional(),
-  complications: z.coerce.boolean().optional(),
-  complicationsDetails: z.string().max(2000).optional(),
-  dischargeDate: z.string().optional(),
-  dischargeCondition: z.string().max(50).optional(),
-});
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-      );
-    }
+    const user = await requireMutation(request, "surgeries.create");
+    if (user instanceof NextResponse) return user;
 
-    if (!canRecordSurgery(user.role)) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })
-      );
-    }
+    const d = createSurgerySchema.parse(sanitizeObject(await request.json()));
+    const [patient] = await db.select({ id: patients.id }).from(patients).where(eq(patients.id, d.patientId)).limit(1);
+    if (!patient) return NextResponse.json({ error: "Patient not found" }, { status: 404 });
 
-    const rateLimit = await checkRateLimit(String(user.id), "/api/surgeries", "api");
-    if (!rateLimit.allowed) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
-      );
-    }
-
-    const body = await request.json();
-    const sanitizedBody = sanitizeObject(body);
-    const validatedData = createSurgerySchema.parse(sanitizedBody);
-
-    // Verify patient exists
-    const [patient] = await db
-      .select({ id: patients.id, localId: patients.localId })
-      .from(patients)
-      .where(eq(patients.id, validatedData.patientId))
-      .limit(1);
-
-    if (!patient) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Patient not found" }, { status: 404 })
-      );
-    }
-
-    const [newSurgery] = await db
+    const [row] = await db
       .insert(surgeries)
       .values({
-        patientId: validatedData.patientId,
-        surgeryDate: validatedData.surgeryDate,
-        surgeryType: validatedData.surgeryType,
-        isPrimarySurgery: validatedData.isPrimarySurgery ?? true,
-        procedureDescription: validatedData.procedureDescription || null,
-        surgeonName: validatedData.surgeonName || null,
+        patientId: d.patientId,
+        surgeryDate: d.surgeryDate,
+        surgeryType: d.surgeryType,
+        isPrimarySurgery: d.isPrimarySurgery,
+        procedureDescription: d.procedureDescription || null,
+        surgeonName: d.surgeonName || `${user.firstName} ${user.lastName}`,
         surgeonUserId: user.id,
-        durationMinutes: validatedData.durationMinutes || null,
-        complications: validatedData.complications ?? false,
-        complicationsDetails: validatedData.complicationsDetails || null,
-        dischargeDate: validatedData.dischargeDate || null,
-        dischargeCondition: validatedData.dischargeCondition || null,
+        durationMinutes: d.durationMinutes,
+        complications: d.complications,
+        complicationsDetails: d.complicationsDetails || null,
+        dischargeDate: d.dischargeDate || null,
+        dischargeCondition: d.dischargeCondition || null,
+        origin: "local",
         syncStatus: "pending",
       })
       .returning();
 
-    // Add to sync queue
-    await db.insert(syncQueue).values({
-      tableName: "surgeries",
-      recordLocalId: newSurgery.localId,
-      operation: "create",
-      payload: { ...newSurgery, patientLocalId: patient.localId },
-      priority: 1,
-    });
-
-    await logAudit(user.id, "create", "surgeries", newSurgery.id, null, { localId: newSurgery.localId }, request);
-
-    return addSecurityHeaders(
-      NextResponse.json(newSurgery, { status: 201 })
-    );
+    await enqueue("surgeries", row.localId);
+    await logAudit({ userId: user.id, action: "create_surgery", tableName: "surgeries", recordId: row.id, newValues: { localId: row.localId, patientId: d.patientId } });
+    syncSoon();
+    return NextResponse.json(row, { status: 201 });
   } catch (error) {
-    console.error("Error creating surgery:", error);
-    
-    if (error instanceof z.ZodError) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Validation error", details: error.issues }, { status: 400 })
-      );
-    }
-
-    return addSecurityHeaders(
-      NextResponse.json({ error: "Failed to record surgery" }, { status: 500 })
-    );
+    return apiError(error, "Failed to record surgery");
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-      );
-    }
+    const user = await requirePermission("surgeries.view");
+    if (user instanceof NextResponse) return user;
 
-    const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get("page") || "1", 10);
-    const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10), 100);
-    const offset = (page - 1) * limit;
-
-    const [surgeryList, totalCount] = await Promise.all([
+    const sp = request.nextUrl.searchParams;
+    const page = Math.max(1, Number(sp.get("page")) || 1);
+    const limit = Math.min(Math.max(Number(sp.get("limit")) || 50, 1), 100);
+    const [list, total] = await Promise.all([
       db
         .select({
-          id: surgeries.id,
-          localId: surgeries.localId,
-          patientId: surgeries.patientId,
-          surgeryDate: surgeries.surgeryDate,
-          surgeryType: surgeries.surgeryType,
-          isPrimarySurgery: surgeries.isPrimarySurgery,
-          surgeonName: surgeries.surgeonName,
-          complications: surgeries.complications,
-          dischargeCondition: surgeries.dischargeCondition,
-          syncStatus: surgeries.syncStatus,
-          patientFirstName: patients.firstName,
-          patientLastName: patients.lastName,
+          id: surgeries.id, localId: surgeries.localId, patientId: surgeries.patientId, surgeryDate: surgeries.surgeryDate,
+          surgeryType: surgeries.surgeryType, isPrimarySurgery: surgeries.isPrimarySurgery, surgeonName: surgeries.surgeonName,
+          complications: surgeries.complications, dischargeCondition: surgeries.dischargeCondition, syncStatus: surgeries.syncStatus,
+          origin: surgeries.origin, patientFirstName: patients.firstName, patientLastName: patients.lastName,
         })
         .from(surgeries)
         .leftJoin(patients, eq(surgeries.patientId, patients.id))
         .orderBy(desc(surgeries.surgeryDate))
         .limit(limit)
-        .offset(offset),
+        .offset((page - 1) * limit),
       db.select({ count: count() }).from(surgeries),
     ]);
-
-    return addSecurityHeaders(
-      NextResponse.json({
-        surgeries: surgeryList,
-        pagination: {
-          page,
-          limit,
-          total: totalCount[0]?.count || 0,
-          totalPages: Math.ceil((totalCount[0]?.count || 0) / limit),
-        },
-      })
-    );
+    const n = total[0]?.count || 0;
+    return NextResponse.json({ surgeries: list, pagination: { page, limit, total: n, totalPages: Math.ceil(n / limit) } });
   } catch (error) {
-    console.error("Error fetching surgeries:", error);
-    return addSecurityHeaders(
-      NextResponse.json({ error: "Failed to fetch surgeries" }, { status: 500 })
-    );
+    return apiError(error, "Failed to fetch surgeries");
   }
 }

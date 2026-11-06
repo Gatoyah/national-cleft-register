@@ -8,6 +8,13 @@
       "when": 1786429570029,
       "tag": "0000_superb_miek",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793921415589,
+      "tag": "0001_security_and_sync",
+      "breakpoints": true
     }
   ]
 }

@@ -4,12 +4,6 @@ export function cn(...inputs: ClassValue[]) {
   return clsx(inputs);
 }
 
-export function generateNCRId(): string {
-  const year = new Date().getFullYear();
-  const random = Math.floor(Math.random() * 99999).toString().padStart(5, "0");
-  return `NCR-${year}-${random}`;
-}
-
 export function formatDate(date: Date | string | null | undefined): string {
   if (!date) return "N/A";
   const d = new Date(date);

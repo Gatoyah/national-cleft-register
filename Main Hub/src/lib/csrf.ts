@@ -4,8 +4,10 @@
  */
 
 import crypto from "crypto";
+import { requireHexSecret } from "@/lib/env";
 
-const CSRF_SECRET = process.env.CSRF_SECRET || "default-csrf-secret-change-in-production";
+// No insecure fallback: a missing/placeholder secret fails loudly.
+const secret = () => requireHexSecret("CSRF_SECRET");
 
 /**
  * Generate a CSRF token tied to the session token.
@@ -15,7 +17,7 @@ const CSRF_SECRET = process.env.CSRF_SECRET || "default-csrf-secret-change-in-pr
 export function generateCsrfToken(sessionToken: string): string {
   const timestamp = Date.now().toString(36);
   const hmac = crypto
-    .createHmac("sha256", CSRF_SECRET)
+    .createHmac("sha256", secret())
     .update(`${sessionToken}:${timestamp}`)
     .digest("hex");
   return `${timestamp}.${hmac}`;
@@ -45,7 +47,7 @@ export function validateCsrfToken(
 
   // Recompute HMAC and compare
   const expectedHmac = crypto
-    .createHmac("sha256", CSRF_SECRET)
+    .createHmac("sha256", secret())
     .update(`${sessionToken}:${timestamp}`)
     .digest("hex");
 

@@ -1,3 +1,4 @@
+import { requirePagePermission } from "@/lib/auth";
 import { db, patients, surgeries, diagnoses, facilities } from "@/db";
 import { eq, count, sql, gte, and, between, desc } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
@@ -119,6 +120,7 @@ async function getQuarterlyData(year: number) {
 }
 
 export default async function StatisticsPage({ searchParams }: PageProps) {
+  await requirePagePermission("stats.view");
   const params = await searchParams;
   const currentYear = new Date().getFullYear();
   const selectedYear = parseInt(params.year || String(currentYear), 10);

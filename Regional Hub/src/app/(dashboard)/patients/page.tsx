@@ -1,3 +1,4 @@
+import { requirePagePermission } from "@/lib/auth";
 import { db, patients } from "@/db";
 import { desc, ilike, or, count } from "drizzle-orm";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -46,6 +47,7 @@ async function getPatients(search?: string, page: number = 1) {
 }
 
 export default async function PatientsPage({ searchParams }: PageProps) {
+  await requirePagePermission("patients.view");
   const params = await searchParams;
   const search = params.search || "";
   const page = parseInt(params.page || "1", 10);

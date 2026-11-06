@@ -1,27 +1,62 @@
-// Database initialization script for Regional Hub
+// Database setup / upgrade for the Regional Hub. Safe to run on every start:
+// tables are created if missing and new columns are added to older databases.
+// The database file is encrypted at rest with DB_ENCRYPTION_KEY.
+//
+// Usage:  node init-db.mjs
 import { createClient } from "@libsql/client";
 import { readFileSync, existsSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 
-// Minimal .env loader (avoids depending on the "dotenv" package, which isn't
-// bundled in the standalone production build).
-if (existsSync(".env")) {
-  for (const line of readFileSync(".env", "utf-8").split("\n")) {
+const here = dirname(fileURLToPath(import.meta.url));
+
+// Minimal .env loader (dotenv isn't bundled in the standalone build).
+const envFile = join(here, ".env");
+if (existsSync(envFile)) {
+  for (const line of readFileSync(envFile, "utf-8").split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
     const eq = trimmed.indexOf("=");
     if (eq === -1) continue;
     const key = trimmed.slice(0, eq).trim();
-    const value = trimmed.slice(eq + 1).trim();
-    if (!(key in process.env)) process.env[key] = value;
+    if (!(key in process.env)) process.env[key] = trimmed.slice(eq + 1).trim();
   }
 }
 
-const databaseUrl = process.env.DATABASE_URL || "file:local.db";
-const client = createClient({ url: databaseUrl });
+const databaseUrl = process.env.DATABASE_URL || `file:${join(here, "local.db")}`;
+const encryptionKey = process.env.DB_ENCRYPTION_KEY;
+if (!encryptionKey || !/^[0-9a-fA-F]{64}$/.test(encryptionKey)) {
+  if (process.env.ALLOW_UNENCRYPTED_DB !== "true") {
+    console.error('DB_ENCRYPTION_KEY is missing/invalid. Run "node setup-env.mjs" first.');
+    process.exit(1);
+  }
+}
+const client = createClient({ url: databaseUrl, ...(encryptionKey ? { encryptionKey } : {}) });
+
+// Columns added after the first release: [table, column, definition]
+const ADDED_COLUMNS = [
+  ["facility_config", "last_pull_at", "INTEGER"],
+  ["facility_config", "last_sync_error", "TEXT"],
+  ["patients", "is_lost_to_follow_up", "INTEGER DEFAULT 0"],
+  ["patients", "consent_clinical_care", "INTEGER DEFAULT 0"],
+  ["patients", "consent_research", "INTEGER DEFAULT 0"],
+  ["patients", "consent_data_sharing", "INTEGER DEFAULT 0"],
+  ["patients", "consent_date", "TEXT"],
+  ["surgeries", "origin", "TEXT DEFAULT 'local'"],
+  ["surgeries", "sync_error", "TEXT"],
+];
 
 async function initDb() {
-  console.log(`Creating database tables (${databaseUrl}) ...`);
-  
+  try {
+    await client.execute("SELECT 1");
+  } catch (e) {
+    if (String(e?.code || e?.message).includes("NOTADB")) {
+      console.error("Cannot open the database: DB_ENCRYPTION_KEY does not match this database file.");
+      process.exit(1);
+    }
+    throw e;
+  }
+
   await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS facility_config (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -190,8 +225,28 @@ async function initDb() {
     );
   `);
 
-  console.log("Database tables created successfully!");
-  await client.close();
+  for (const [table, column, definition] of ADDED_COLUMNS) {
+    const { rows } = await client.execute(`PRAGMA table_info(${table})`);
+    if (!rows.some((r) => r.name === column)) {
+      await client.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+      console.log(`  added ${table}.${column}`);
+    }
+  }
+
+  await client.executeMultiple(`
+    CREATE INDEX IF NOT EXISTS sync_queue_status_idx ON sync_queue (status, table_name);
+    CREATE INDEX IF NOT EXISTS sync_queue_record_idx ON sync_queue (table_name, record_local_id);
+    CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions (user_id);
+    CREATE INDEX IF NOT EXISTS audit_logs_created_idx ON audit_logs (created_at);
+    CREATE INDEX IF NOT EXISTS diagnoses_patient_idx ON diagnoses (patient_id);
+    CREATE INDEX IF NOT EXISTS surgeries_patient_idx ON surgeries (patient_id);
+  `);
+
+  console.log("Database is up to date.");
+  client.close();
 }
 
-initDb().catch(console.error);
+initDb().catch((e) => {
+  console.error("Database setup failed:", e.message);
+  process.exit(1);
+});

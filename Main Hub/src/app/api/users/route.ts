@@ -1,148 +1,98 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, users } from "@/db";
-import { hashPassword, requireRole, getSessionToken, validatePasswordStrength } from "@/lib/auth";
+import { db, users, facilities } from "@/db";
+import { hashPassword, requirePermission, requireMutation, validatePasswordStrength, generateRandomPassword } from "@/lib/auth";
 import { sanitizeObject } from "@/lib/sanitize";
-import { validateCsrfToken } from "@/lib/csrf";
 import { logAudit } from "@/lib/audit";
+import { apiError } from "@/lib/api";
+import { ROLES } from "@/lib/permissions";
 import { z } from "zod";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 const createUserSchema = z.object({
-  email: z.string().email("Invalid email"),
-  password: z.string(),
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
-  role: z.enum(["admin", "clinician", "surgeon", "data_clerk", "researcher", "viewer", "community_health_worker"]),
-  facilityId: z.coerce.number().optional(),
-  phone: z.string().optional(),
-  professionalId: z.string().optional(),
+  email: z.string().trim().toLowerCase().email("Invalid email").max(255),
+  // Optional: if omitted a strong temporary password is generated and shown once.
+  password: z.string().optional().or(z.literal("")),
+  firstName: z.string().min(1, "First name is required").max(100),
+  lastName: z.string().min(1, "Last name is required").max(100),
+  role: z.enum(ROLES),
+  facilityId: z.coerce.number().int().positive().optional().nullable(),
+  phone: z.string().max(20).optional(),
+  professionalId: z.string().max(50).optional(),
 });
 
 export async function POST(request: NextRequest) {
   try {
-    const currentUser = await requireRole("admin");
-    if (currentUser instanceof NextResponse) return currentUser;
-
-    // Validate CSRF token
-    const csrfToken = request.headers.get("x-csrf-token");
-    const sessionToken = await getSessionToken();
-    if (!csrfToken || !sessionToken || !validateCsrfToken(csrfToken, sessionToken)) {
-      return NextResponse.json(
-        { error: "Invalid or missing CSRF token" },
-        { status: 403 }
-      );
-    }
+    const admin = await requireMutation(request, "users.manage");
+    if (admin instanceof NextResponse) return admin;
 
     const body = await request.json();
-    
-    // Separate password from fields to avoid changing special characters during HTML escape sanitisation
-    const { password, ...otherFields } = body;
-    const sanitizedFields = sanitizeObject(otherFields);
-    
-    const validatedData = createUserSchema.parse({
-      ...sanitizedFields,
-      password,
-    });
+    const { password, ...rest } = body ?? {};
+    const data = createUserSchema.parse({ ...sanitizeObject(rest), password });
 
-    // Validate password complexity
-    const passwordStrength = validatePasswordStrength(validatedData.password);
-    if (!passwordStrength.valid) {
-      return NextResponse.json(
-        { error: "Password does not meet complexity requirements", details: passwordStrength.errors },
-        { status: 400 }
-      );
+    const generated = !data.password;
+    const initialPassword = data.password || generateRandomPassword();
+    const strength = validatePasswordStrength(initialPassword);
+    if (!strength.valid) {
+      return NextResponse.json({ error: "Password does not meet complexity requirements", details: strength.errors }, { status: 400 });
     }
 
-    // Hash password
-    const passwordHash = await hashPassword(validatedData.password);
+    if (data.facilityId) {
+      const [f] = await db.select({ id: facilities.id }).from(facilities).where(eq(facilities.id, data.facilityId)).limit(1);
+      if (!f) return NextResponse.json({ error: "Facility not found" }, { status: 400 });
+    }
 
-    // Create user
     const [newUser] = await db
       .insert(users)
       .values({
-        email: validatedData.email.toLowerCase(),
-        passwordHash,
-        firstName: validatedData.firstName,
-        lastName: validatedData.lastName,
-        role: validatedData.role,
-        facilityId: validatedData.facilityId || null,
-        phone: validatedData.phone || null,
-        professionalId: validatedData.professionalId || null,
+        email: data.email,
+        passwordHash: await hashPassword(initialPassword),
+        firstName: data.firstName,
+        lastName: data.lastName,
+        role: data.role,
+        facilityId: data.facilityId || admin.facilityId || null,
+        phone: data.phone || null,
+        professionalId: data.professionalId || null,
         isActive: true,
+        // The person must choose their own password at first login.
+        mustChangePassword: true,
+        createdByUserId: admin.id,
       })
-      .returning({
-        id: users.id,
-        email: users.email,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        role: users.role,
-      });
+      .returning({ id: users.id, email: users.email, firstName: users.firstName, lastName: users.lastName, role: users.role });
 
-    // Log action to audit log
-    await logAudit({
-      userId: currentUser.id,
-      action: "create_user",
-      tableName: "users",
-      recordId: newUser.id,
-      newValues: {
-        email: newUser.email,
-        firstName: newUser.firstName,
-        lastName: newUser.lastName,
-        role: newUser.role,
-      },
-    });
-
-    return NextResponse.json(newUser, { status: 201 });
-  } catch (error) {
-    console.error("Error creating user:", error);
-
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Validation error", details: error.issues },
-        { status: 400 }
-      );
-    }
-
-    // Check for unique constraint violation
-    if (error instanceof Error && error.message.includes("unique")) {
-      return NextResponse.json(
-        { error: "A user with this email already exists" },
-        { status: 409 }
-      );
-    }
+    await logAudit({ userId: admin.id, action: "create_user", tableName: "users", recordId: newUser.id, newValues: { email: newUser.email, role: newUser.role } });
 
     return NextResponse.json(
-      { error: "Failed to create user" },
-      { status: 500 }
+      { ...newUser, ...(generated ? { temporaryPassword: initialPassword } : {}), mustChangePassword: true },
+      { status: 201 }
     );
+  } catch (error) {
+    return apiError(error, "Failed to create user");
   }
 }
 
 export async function GET() {
   try {
-    const currentUser = await requireRole("admin");
-    if (currentUser instanceof NextResponse) return currentUser;
+    const admin = await requirePermission("users.manage");
+    if (admin instanceof NextResponse) return admin;
 
-    const userList = await db
+    const list = await db
       .select({
         id: users.id,
         email: users.email,
         firstName: users.firstName,
         lastName: users.lastName,
         role: users.role,
+        facilityId: users.facilityId,
         isActive: users.isActive,
+        mustChangePassword: users.mustChangePassword,
+        lockedUntil: users.lockedUntil,
         lastLoginAt: users.lastLoginAt,
         createdAt: users.createdAt,
       })
       .from(users)
       .orderBy(desc(users.createdAt));
-
-    return NextResponse.json(userList);
+    return NextResponse.json(list);
   } catch (error) {
-    console.error("Error fetching users:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch users" },
-      { status: 500 }
-    );
+    return apiError(error, "Failed to fetch users");
   }
 }

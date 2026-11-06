@@ -1,5 +1,8 @@
 "use client";
 
+import { useCsrf } from "@/hooks/useCsrf";
+import { describeApiError } from "@/components/AuthShell";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
@@ -57,6 +60,7 @@ const relationshipOptions = [
 ];
 
 export default function NewPatientPage() {
+  const { getCsrfHeaders } = useCsrf();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -75,13 +79,14 @@ export default function NewPatientPage() {
     try {
       const res = await fetch("/api/patients", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getCsrfHeaders(),
         body: JSON.stringify(data),
       });
 
       if (!res.ok) {
         const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to register patient");
+        const { message, details } = describeApiError(errorData);
+        throw new Error(details.length ? `${message}: ${details.join("; ")}` : message || "Failed to register patient");
       }
 
       const patient = await res.json();
@@ -194,6 +199,27 @@ export default function NewPatientPage() {
               <Input label="Phone Number" name="caregiverPhone" type="tel" placeholder="e.g., 0244123456" />
               <Input label="Alternative Phone" name="caregiverPhone2" type="tel" placeholder="Optional" />
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Consent */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Caregiver Consent</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <label className="flex items-start gap-2">
+              <input type="checkbox" name="consentClinicalCare" value="true" className="mt-1 w-4 h-4" />
+              <span>Consents to the child&apos;s data being recorded in the National Cleft Registry for clinical care and follow-up.</span>
+            </label>
+            <label className="flex items-start gap-2">
+              <input type="checkbox" name="consentDataSharing" value="true" className="mt-1 w-4 h-4" />
+              <span>Consents to the data being shared with the national Main Hub (KATH) and treating cleft centres.</span>
+            </label>
+            <label className="flex items-start gap-2">
+              <input type="checkbox" name="consentResearch" value="true" className="mt-1 w-4 h-4" />
+              <span>Consents to <strong>de-identified</strong> data (no names or contact details) being used for research. Only consented patients are ever included in research exports.</span>
+            </label>
           </CardContent>
         </Card>
 

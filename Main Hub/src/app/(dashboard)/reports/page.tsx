@@ -1,3 +1,4 @@
+import { requirePagePermission } from "@/lib/auth";
 import { db, patients, surgeries, diagnoses, appointments, followUpAlerts } from "@/db";
 import { count, eq, sql, gte, and, desc } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
@@ -56,6 +57,7 @@ async function getReportData() {
 }
 
 export default async function ReportsPage() {
+  await requirePagePermission("reports.view");
   const data = await getReportData();
 
   const totalCleftCases = data.cleftTypeDistribution.reduce((sum, d) => sum + d.count, 0);

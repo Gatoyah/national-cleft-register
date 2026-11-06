@@ -1,58 +1,64 @@
 import { NextResponse } from "next/server";
 import { db, syncQueue, patients, surgeries, facilityConfig } from "@/db";
-import { getCurrentUser } from "@/lib/auth";
-import { addSecurityHeaders } from "@/lib/security";
-import { count, eq } from "drizzle-orm";
+import { count, eq, desc } from "drizzle-orm";
+import { requireAuth } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
+import { apiError } from "@/lib/api";
+import { checkMainHubUrl } from "@/lib/sync";
 
 export async function GET() {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-      );
-    }
+    const user = await requireAuth();
+    if (user instanceof NextResponse) return user;
 
-    const [
-      config,
-      pendingQueueCount,
-      pendingPatientCount,
-      pendingSurgeryCount,
-      totalPatientCount,
-      totalSurgeryCount,
-    ] = await Promise.all([
+    const [[config], [pending], [failed], [totalPatients], [totalSurgeries], [unsyncedPatients]] = await Promise.all([
       db.select().from(facilityConfig).limit(1),
-      db.select({ count: count() }).from(syncQueue).where(eq(syncQueue.status, "pending")),
-      db.select({ count: count() }).from(patients).where(eq(patients.syncStatus, "pending")),
-      db.select({ count: count() }).from(surgeries).where(eq(surgeries.syncStatus, "pending")),
-      db.select({ count: count() }).from(patients),
-      db.select({ count: count() }).from(surgeries),
+      db.select({ n: count() }).from(syncQueue).where(eq(syncQueue.status, "pending")),
+      db.select({ n: count() }).from(syncQueue).where(eq(syncQueue.status, "failed")),
+      db.select({ n: count() }).from(patients),
+      db.select({ n: count() }).from(surgeries),
+      db.select({ n: count() }).from(patients).where(eq(patients.syncStatus, "pending")),
     ]);
 
-    return addSecurityHeaders(
-      NextResponse.json({
-        facility: config[0] ? {
-          code: config[0].facilityCode,
-          name: config[0].facilityName,
-          region: config[0].region,
-          mainHubConfigured: !!config[0].mainHubUrl,
-          syncEnabled: config[0].syncEnabled,
-          lastSyncAt: config[0].lastSyncAt,
-        } : null,
-        stats: {
-          pendingQueue: pendingQueueCount[0]?.count || 0,
-          pendingPatients: pendingPatientCount[0]?.count || 0,
-          pendingSurgeries: pendingSurgeryCount[0]?.count || 0,
-          totalPatients: totalPatientCount[0]?.count || 0,
-          totalSurgeries: totalSurgeryCount[0]?.count || 0,
-        },
-        timestamp: new Date().toISOString(),
-      })
-    );
+    const summary = {
+      stats: {
+        pendingQueue: pending?.n ?? 0,
+        failedQueue: failed?.n ?? 0,
+        pendingPatients: unsyncedPatients?.n ?? 0,
+        totalPatients: totalPatients?.n ?? 0,
+        totalSurgeries: totalSurgeries?.n ?? 0,
+      },
+      lastSyncAt: config?.lastSyncAt ?? null,
+      lastSyncError: config?.lastSyncError ?? null,
+      timestamp: new Date().toISOString(),
+    };
+    if (!hasPermission(user.role, "sync.manage")) return NextResponse.json(summary);
+
+    const problems = await db
+      .select({ id: syncQueue.id, tableName: syncQueue.tableName, recordLocalId: syncQueue.recordLocalId, status: syncQueue.status, attempts: syncQueue.attempts, lastError: syncQueue.lastError, lastAttemptAt: syncQueue.lastAttemptAt })
+      .from(syncQueue)
+      .orderBy(desc(syncQueue.lastAttemptAt))
+      .limit(50);
+
+    return NextResponse.json({
+      ...summary,
+      facility: config
+        ? {
+            code: config.facilityCode,
+            name: config.facilityName,
+            region: config.region,
+            mainHubUrl: config.mainHubUrl,
+            apiKeyConfigured: !!config.apiKey,
+            mainHubConfigured: !!config.mainHubUrl && !!config.apiKey,
+            urlWarning: config.mainHubUrl ? checkMainHubUrl(config.mainHubUrl) : null,
+            syncEnabled: config.syncEnabled,
+            lastPullAt: config.lastPullAt,
+            autoSyncMinutes: Math.max(1, Number(process.env.SYNC_INTERVAL_MINUTES) || 5),
+          }
+        : null,
+      queue: problems.filter((p) => p.lastError),
+    });
   } catch (error) {
-    console.error("Error fetching sync status:", error);
-    return addSecurityHeaders(
-      NextResponse.json({ error: "Failed to fetch sync status" }, { status: 500 })
-    );
+    return apiError(error, "Failed to fetch sync status");
   }
 }

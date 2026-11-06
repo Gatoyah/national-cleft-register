@@ -4,19 +4,25 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-const navigation = [
+const navigation: { name: string; href: string; icon: (p: { className?: string }) => React.ReactElement; permission?: string }[] = [
   { name: "Dashboard", href: "/dashboard", icon: DashboardIcon },
-  { name: "Patient Registry", href: "/patients", icon: PatientsIcon },
-  { name: "Surgeries", href: "/surgeries", icon: SurgeryIcon },
-  { name: "Statistics", href: "/statistics", icon: StatsIcon },
-  { name: "Regional Hubs", href: "/hubs", icon: HubsIcon },
-  { name: "Data Sync", href: "/sync", icon: SyncIcon },
-  { name: "Reports", href: "/reports", icon: ReportsIcon },
-  { name: "Users", href: "/users", icon: UsersIcon },
-  { name: "Settings", href: "/settings", icon: SettingsIcon },
+  { name: "Patient Registry", href: "/patients", icon: PatientsIcon, permission: "patients.view" },
+  { name: "Surgeries", href: "/surgeries", icon: SurgeryIcon, permission: "surgeries.view" },
+  { name: "Appointments", href: "/appointments", icon: ReportsIcon, permission: "appointments.view" },
+  { name: "Follow-up Alerts", href: "/alerts", icon: SyncIcon, permission: "alerts.view" },
+  { name: "Statistics", href: "/statistics", icon: StatsIcon, permission: "stats.view" },
+  { name: "Reports", href: "/reports", icon: ReportsIcon, permission: "reports.view" },
+  { name: "Research & Export", href: "/research", icon: StatsIcon, permission: "research.view" },
+  { name: "Regional Hubs", href: "/hubs", icon: HubsIcon, permission: "hubs.manage" },
+  { name: "Facilities", href: "/facilities", icon: HubsIcon, permission: "facilities.view" },
+  { name: "Data Sync", href: "/sync", icon: SyncIcon, permission: "sync.view" },
+  { name: "Users", href: "/users", icon: UsersIcon, permission: "users.manage" },
+  { name: "Audit Log", href: "/audit", icon: ReportsIcon, permission: "audit.view" },
+  { name: "Settings", href: "/settings", icon: SettingsIcon, permission: "settings.view" },
+  { name: "My Account", href: "/account", icon: UsersIcon },
 ];
 
-export function Sidebar() {
+export function Sidebar({ permissions }: { permissions: string[] }) {
   const pathname = usePathname();
 
   return (
@@ -36,7 +42,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navigation.map((item) => {
+        {navigation.filter((item) => !item.permission || permissions.includes(item.permission)).map((item) => {
           const isActive = pathname.startsWith(item.href);
           return (
             <Link

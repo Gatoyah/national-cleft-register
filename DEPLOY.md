@@ -1,146 +1,181 @@
-# Installing National Cleft Registry on a hospital machine
+# Installing the National Cleft Registry at a hospital
 
-This guide is for installing **one app per machine** — the Main Hub at KATH, and a
-Regional Hub at each regional hospital — on a computer that does **not** have Node.js,
-npm, git, or any developer tools installed. No internet connection is required to run
-the app day-to-day (only for the initial one-time download below, and for the Regional
-Hub to sync with the Main Hub).
+This guide is for the person setting up the computer that runs the registry: the
+**Main Hub** at the national centre (KATH), or a **Regional Hub** at a regional hospital.
+No programming tools, internet or administrator knowledge of Node.js is needed.
 
-You do this once per machine, from a technical person's laptop with internet access,
-then copy the result over by USB drive.
-
-## What's in this package
-
-```
-main-hub/  (or regional-hub/)
-├── start.bat / start.sh   <- double-click / run this to launch the app
-├── server.js              <- the app itself
-├── node_modules/          <- only what's needed to run (not the full dev install)
-├── migrate.mjs (or init-db.mjs)  <- sets up the database on first run
-├── .env.example           <- copy this to .env and fill in real secrets
-└── node/                  <- you add this (see step 1 below)
-```
-
-## Step 1 — Add a portable Node.js runtime (one-time, needs internet)
-
-The app needs a JavaScript runtime to run — but you don't need to "install" Node.js
-system-wide. Instead, download the portable, no-install version and drop it straight
-into the package folder:
-
-1. Go to <https://nodejs.org/en/download> and choose the **LTS** version for the target
-   machine's operating system (most hospital PCs: **Windows, 64-bit, .zip**).
-2. Extract the downloaded zip. You'll get a folder like `node-v22.x.x-win-x64`.
-3. Rename that folder to `node` and place it inside `main-hub/` (and separately inside
-   `regional-hub/`, if setting one up too), so you end up with `main-hub/node/node.exe`.
-
-That's it — `start.bat` / `start.sh` will find and use it automatically. (If the target
-machine already has Node.js properly installed and on its PATH, you can skip this step
-entirely — the launcher scripts fall back to a system-wide `node` if no bundled copy is
-found.)
-
-## Step 2 — Configure secrets
-
-Inside the package folder:
-
-```
-copy .env.example .env        (Windows)
-cp .env.example .env           (Mac/Linux)
-```
-
-Open `.env` in Notepad and replace the placeholder secret values
-(`SESSION_SECRET`, `CSRF_SECRET`, and — for the Regional Hub — `ENCRYPTION_KEY`) with
-your own random values. You can generate one at a time by running, from inside the
-package folder:
-
-```
-node\node.exe -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-Run it as many times as you have placeholders to fill in, pasting each result in place
-of the matching `replace-with-...` text.
-
-You don't need to touch `DATABASE_URL` — `start.bat`/`start.sh` set it automatically
-based on wherever you've actually placed this folder, so it works correctly no matter
-where you install it.
-
-For the **Regional Hub**, also set `MAIN_HUB_URL` to wherever the Main Hub will actually
-be reachable from this machine (e.g. `http://192.168.1.10:3000` on a hospital LAN, or
-a public HTTPS URL if connecting across separate sites — see the root `README.md` for
-more on cross-site setups).
-
-## Step 3 — Copy to the target machine
-
-Copy the whole package folder (now including your `node/` folder and your `.env`) onto
-a USB drive, then onto the hospital computer. Anywhere is fine — e.g.
-`C:\NCR\main-hub\`.
-
-## Step 4 — First run
-
-Double-click `start.bat` (Windows) or run `./start.sh` (Mac/Linux) from inside the
-folder. On the very first run it will:
-
-1. Create the SQLite database file and set up all tables.
-2. Start the server.
-
-You'll see `Ready` in the window once it's up. Leave that window open — closing it
-stops the server. Then open a browser to:
-
-- **Main Hub:** <http://localhost:3000>
-- **Regional Hub:** <http://localhost:3001>
-
-## Step 5 — Create the admin account
-
-The very first time, from that same machine, open a second terminal/command prompt (or
-just visit the URL in a browser — the login page will explain if setup hasn't run yet)
-and run:
-
-```
-curl -X POST http://localhost:3000/api/auth/setup      (Main Hub)
-curl -X POST http://localhost:3001/api/auth/setup      (Regional Hub)
-```
-
-This creates the default admin login: **admin@ncr.gov.gh** / **Admin123!** — change the
-password immediately after your first login.
-
-## Step 6 — Connect a Regional Hub to the Main Hub
-
-See the root `README.md`'s "Connect the Regional Hub to the Main Hub" section — this is
-a one-time setup done from each app's web UI (Main Hub → Regional Hubs → Register New
-Regional Hub, then paste the resulting API key into the Regional Hub's Sync Data →
-Edit form).
+You need the package for your hub, for example `ncr-regional-hub-win-x64.zip` (built with
+`npm run package:windows`, see README.md), and `SHA256SUMS.txt`.
 
 ---
 
-## Making it start automatically (optional, recommended for real deployment)
+## 1. Check the file and unpack it
 
-Right now, someone has to double-click `start.bat` and leave the window open. For a
-machine that should just always be running the registry, two common options:
+1. Check the download is intact. In PowerShell, in the folder with the zip:
+   `Get-FileHash .\ncr-regional-hub-win-x64.zip -Algorithm SHA256`.
+   The long code must match the line in `SHA256SUMS.txt`.
+2. Right-click the zip → **Extract All…** to a permanent location, e.g. `C:\NCR\`.
+   You get `C:\NCR\regional-hub\` (or `C:\NCR\main-hub\`).
+   Do not run it from inside the zip or from a USB stick.
 
-**Simplest — Windows Startup folder:** Press `Win + R`, type `shell:startup`, and drop
-a shortcut to `start.bat` in the folder that opens. It'll launch automatically (in a
-visible window) every time the machine boots and someone logs in.
+## 2. Start it
 
-**More robust — run as a Windows Service:** Use a free tool like
-[NSSM](https://nssm.cc/) to register `node.exe server.js` as a background Windows
-service, so it starts before login, restarts automatically if it crashes, and doesn't
-need a visible terminal window. This is the recommended setup for a machine that acts
-as a shared server others connect to over the hospital network.
+Double-click **`start.bat`** (Linux/macOS: run `./start.sh`). On the first start it
+automatically:
+
+1. creates the `.env` file with new random secret keys (including the key that encrypts
+   the database),
+2. creates the encrypted database,
+3. starts the server and prints a **SETUP TOKEN**.
+
+Leave the window open: closing it stops the registry. When you see `Ready`, open a browser
+on the same computer:
+
+- Main Hub: <http://localhost:3000>
+- Regional Hub: <http://localhost:3001>
+
+> If Windows Firewall asks, allow access on **private networks** so other computers in the
+> hospital can use the registry.
+
+## 3. ⚠️ Back up the `.env` file now
+
+`.env` holds `DB_ENCRYPTION_KEY`. **If it is lost, the patient database can never be
+opened again.** Copy `.env` to a safe place **separate from the database backups**: an
+encrypted USB stick in a locked drawer, or a password manager. Never email it.
+
+## 4. Create the administrator (setup wizard)
+
+The browser shows **First-time setup**:
+
+- **Setup token**: from the black start window, or the file `setup-token.txt` in the app
+  folder. It stops anyone else on the network from claiming the server first.
+- **Regional Hub only**: hospital name, **hospital code** (e.g. `TTH`, which must match
+  what the Main Hub registers) and region.
+- Your name, email and a strong password (at least 12 characters with upper- and
+  lower-case letters, a number and a symbol).
+
+You are now the hub's **administrator**, with access to everything. The token file is
+deleted automatically.
+
+## 5. Create accounts for your colleagues
+
+**Users → Add User.** Enter their name and email and pick a **role** (each role's
+permissions are shown on that screen and in README.md). Leave the password empty and a
+temporary password is generated and shown **once**; give it to the person privately. They
+must choose their own password when they first sign in.
+
+On a user's **Edit** page you can change their role, **reset password**, **unlock** (after
+5 wrong passwords an account locks for 15 minutes) or **disable** the account. Disable
+accounts as soon as someone leaves. Every sign-in and action is recorded under **Audit Log**.
+
+## 6. Connect a Regional Hub to the Main Hub
+
+**On the Main Hub** (administrator): **Regional Hubs → Add Regional Hub**. Enter the
+hospital's name and the **same code** used in the Regional Hub's setup. The Main Hub shows
+a **sync API key** **once**. Pass it to the regional administrator privately, by phone or
+in person, not in a plain email with other details.
+
+**On the Regional Hub** (administrator): **Sync with Main Hub → Edit connection**:
+
+- **Main Hub URL**: the address where the Main Hub can be reached:
+  - same hospital network / VPN: `http://<main-hub-pc-ip>:3000`, e.g. `http://10.20.1.5:3000`
+  - over the internet: an **https://** address (required; plain http is refused for
+    internet addresses so patient data and the key are never sent unencrypted)
+- **API key**: the key from the Main Hub.
+
+Press **Save and test**. If the Main Hub is reachable, the key is checked immediately. If
+the Main Hub is offline, the settings are saved and used once it is back.
+
+From then on the Regional Hub syncs **automatically** (every 5 minutes and shortly after
+each new record). The bar at the top shows "All records synced" or "N records saved here,
+waiting to sync". Data entry works normally while offline, and nothing is lost: records
+wait in the queue until the Main Hub confirms them.
+
+If a key may have leaked, or a Regional Hub computer is replaced: Main Hub → **Regional
+Hubs → New sync key**, then enter the new key on the Regional Hub. The old key stops working
+immediately.
+
+## 7. Let other computers in the hospital use it
+
+Find the server's IP address (Windows: run `ipconfig`, look for "IPv4 Address"). Other
+computers on the hospital network open `http://<that-ip>:3001` (Regional Hub) or
+`http://<that-ip>:3000` (Main Hub). Give the server a fixed IP address in your router or
+DHCP so the address does not change.
+
+## 8. HTTPS (required when the Main Hub is on the internet)
+
+The registry itself speaks plain HTTP, which is fine inside a hospital network or VPN. For
+access over the internet, put it behind HTTPS, e.g. with [Caddy](https://caddyserver.com/)
+(free, automatic certificates). Example `Caddyfile` on the Main Hub server:
+
+```
+registry.example.gov.gh {
+    reverse_proxy localhost:3000
+}
+```
+
+Then add `COOKIE_SECURE=true` to that hub's `.env` and restart. Regional Hubs then use
+`https://registry.example.gov.gh` as the Main Hub URL.
+
+Alternatively, connect the sites with a VPN (WireGuard, Tailscale, or the ministry network)
+and use the private address.
+
+## 9. Backups
+
+- A backup is made **every time the app starts** and **once a day** while it runs, into the
+  `backups\` folder (the 30 newest are kept). Backups are encrypted with the same key as the
+  database.
+- Make an extra copy any time, e.g. straight onto a USB drive:
+  `node\node.exe backup.mjs E:\` (Linux/macOS: `node/bin/node backup.mjs /media/usb`).
+- Copy the `backups\` folder off the machine regularly (weekly at least). Keep the `.env`
+  copy **somewhere else**.
+
+**Restoring:** stop the app, rename the broken `main_hub.db` / `local.db`, copy a backup
+file into the app folder with that name, make sure `.env` is the original one, and start
+again.
+
+## 10. Start automatically (recommended)
+
+**Simple:** press `Win + R`, type `shell:startup`, and put a shortcut to `start.bat` in the
+folder that opens. The registry starts whenever someone logs in.
+
+**Better, as a Windows service** (starts before login, restarts if it crashes): use
+[NSSM](https://nssm.cc/). In an administrator command prompt:
+
+```
+nssm install NCR-RegionalHub "C:\NCR\regional-hub\start.bat"
+nssm set NCR-RegionalHub AppDirectory "C:\NCR\regional-hub"
+nssm start NCR-RegionalHub
+```
+
+When running as a service, read the setup token from `setup-token.txt` in the app folder.
+
+Linux: create a systemd service that runs `/opt/ncr/main-hub/start.sh`.
+
+## 11. Updating to a new version
+
+1. Stop the app (close the window, or `nssm stop NCR-RegionalHub`).
+2. Copy the whole app folder somewhere safe (a full backup).
+3. Extract the new package **over** the existing folder. Keep your `.env`, the `.db` file
+   and `backups\`; the new package does not contain them.
+4. Start the app. It backs up the database and upgrades it automatically.
 
 ---
 
 ## Troubleshooting
 
-- **"node is not recognized..."** — the `node\` folder is missing or misplaced; see
-  Step 1. Make sure the path is exactly `main-hub\node\node.exe`.
-- **"Cannot find module '@libsql/win32-x64-msvc'" (or a similar `@libsql`/`sharp`
-  platform error)** — the package you're running was built on a different operating
-  system than this machine. Get a package rebuilt/downloaded for the right OS; this
-  isn't something you can fix by editing files.
-- **"Invalid key length" / `ERR_CRYPTO_INVALID_KEYLEN`** — `ENCRYPTION_KEY` in `.env`
-  (Regional Hub only) isn't a valid 64-character hex string. Regenerate it with the
-  command in Step 3 and paste the *entire* output, with no extra characters.
-- **Port already in use** — another program (or a previous, still-running copy of this
-  app) is using port 3000/3001. Close it, or edit `start.bat`/`start.sh` to use a
-  different `PORT` value.
-- **Nothing loads in the browser** — check the terminal window for errors; make sure
-  you see the line `Ready` before trying to open the browser.
+| Problem | Fix |
+|---|---|
+| `Node.js not found` | The `node` folder is missing. Use a package built with `--with-node`. |
+| `Cannot find module '@libsql/win32-x64-msvc'` (or another `@libsql/...`) | The package was built for another operating system. Rebuild with the right `--target`. |
+| `DB_ENCRYPTION_KEY does not match this database file` | The `.env` file was replaced or edited. Put back the original `.env` (your safe copy). |
+| `DB_ENCRYPTION_KEY is missing/invalid` | Run `node\node.exe setup-env.mjs`, or restore your `.env` copy. Do not generate a new key for an existing database. |
+| Setup page asks for a token I don't have | It is in the start window and in `setup-token.txt` in the app folder. Restarting prints it again. |
+| "Account temporarily locked" | Wait 15 minutes, or an administrator presses **Unlock account** on the user's Edit page. |
+| Admin forgot their password | Another administrator can reset it. If there is no other admin, contact the registry's technical team. |
+| Sync page: "Main Hub not reachable" | Normal while offline: data is kept. Check the Main Hub is running and the URL is reachable from this PC (open it in a browser). |
+| Sync page: "rejected this hub's credentials" | The key was rotated or mistyped. Get the current key from the Main Hub admin and enter it again. |
+| Sync page: records "failed" | The Main Hub refused the data; the reason is listed. Fix the record, then press **Retry failed**. |
+| "Use https:// for a Main Hub on the internet" | See section 8. |
+| Port already in use | Another copy is running. Close it, or set another port: `set PORT=3005` before `start.bat`. |
+| Other PCs can't open it | Allow the app in Windows Firewall (private networks) and use the server's IP address, not `localhost`. |

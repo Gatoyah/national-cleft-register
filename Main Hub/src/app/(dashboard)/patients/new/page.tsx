@@ -1,5 +1,7 @@
 "use client";
 
+import { describeApiError } from "@/components/AuthShell";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
@@ -71,7 +73,8 @@ export default function NewPatientPage() {
 
       if (!res.ok) {
         const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to register patient");
+        const { message, details } = describeApiError(errorData);
+        throw new Error(details.length ? `${message}: ${details.join("; ")}` : message || "Failed to register patient");
       }
 
       const patient = await res.json();

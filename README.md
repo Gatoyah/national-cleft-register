@@ -1,110 +1,228 @@
 # National Cleft Registry — Ghana
 
-A two-part registry system for tracking cleft lip/palate patients:
+A registry for cleft lip/palate patients, made of two applications:
 
-- **Main Hub** — the national-level app (patients, surgeries, diagnoses, appointments,
-  reports, statistics, and regional hub management). Runs on port `3000`.
-- **Regional Hub** — a facility-level app for offline-first data entry, which syncs its
-  records up to the Main Hub. Runs on port `3001`.
+| App | Where it runs | Port | What it does |
+|---|---|---|---|
+| **Main Hub** (`Main Hub/`) | National centre (KATH) | 3000 | National registry: patients, diagnoses, surgeries, appointments, statistics, reports, research exports, regional hub management |
+| **Regional Hub** (`Regional Hub/`) | Each regional hospital | 3001 | Data entry that works **without internet**; syncs with the Main Hub whenever it can reach it |
 
-Both are separate Next.js applications with their own local SQLite database, in the
-`Main Hub/` and `Regional Hub/` folders.
+Each app is a self-contained Next.js server with its own **encrypted** SQLite database.
+
+```
+ Regional Hub (TTH) ─┐   push: patients, diagnoses, surgeries        ┌─ Main Hub (KATH)
+ Regional Hub (KBTH) ┼──────────────────────────────────────────────►│  national registry
+ Regional Hub (...)  ┘◄──────────────────────────────────────────────┘
+                         pull: NCR IDs, status changes, surgeries done at the Main Hub
+```
+
+- **Hospital installation (no developer tools needed):** see **[DEPLOY.md](DEPLOY.md)**.
+- **Building the installable packages and sending them:** see [Compile, package and send](#compile-package-and-send).
 
 ---
 
-## 1. Clone the repo
+## Accounts and roles
+
+On first start, each hub shows a **setup wizard** that creates that hub's **administrator**.
+The administrator has access to everything and **creates the accounts for everyone else**
+(Users → Add User). Each person gets a temporary password and must choose their own at
+first sign-in. The administrator can later change a user's role, reset their password,
+unlock them after failed logins, or disable the account (which signs them out at once).
+There is always at least one active administrator.
+
+### Main Hub roles
+
+| Role | Can do |
+|---|---|
+| Administrator | Everything: users, regional hubs and sync keys, audit log, settings, full exports |
+| Surgeon | Register/edit patients, diagnoses, **record surgeries**, appointments, statistics, reports |
+| Clinician | Register/edit patients, diagnoses, appointments, statistics, reports |
+| Data clerk | Register/edit patients and appointments, view surgeries, statistics |
+| Community health worker | View patients, appointments and follow-up alerts |
+| Researcher | Statistics, reports, research page and **de-identified** exports only, no names |
+| Viewer | Statistics and reports only, no names |
+
+### Regional Hub roles
+
+| Role | Can do |
+|---|---|
+| Administrator | Everything: users, sync with the Main Hub, audit log |
+| Surgeon | Register/view/edit patients and **record surgeries** |
+| Clinician | Register/view/edit patients |
+| Data clerk | Register and view patients |
+| Viewer | Statistics only, no names |
+
+The rules live in one file per app (`src/lib/permissions.ts`). Every API route, every
+page and the menu follow it. Opening a page you are not allowed to see shows
+"Access not permitted".
+
+---
+
+## Offline sync
+
+- Everything is saved on the Regional Hub first, in its own database, so data entry
+  never depends on the internet.
+- Every new or edited patient/surgery goes into a **sync queue** on the Regional Hub.
+- The Regional Hub syncs **automatically** every 5 minutes (`SYNC_INTERVAL_MINUTES`) and a
+  few seconds after something is saved. Admins can also press **Sync now**.
+- A record leaves the queue **only after the Main Hub confirms it saved that record**. If
+  the Main Hub is down or the internet is off, records stay queued and are retried
+  indefinitely. They are never dropped.
+- Records the Main Hub rejects (invalid data) are listed on the Sync page with the reason,
+  and can be retried after fixing.
+- Sync is idempotent: sending the same record twice never creates duplicates.
+- The Main Hub assigns the official **NCR ID** (`NCR-YYYY-NNNNN`, sequential), which flows
+  back to the Regional Hub. Status changes (deceased, lost to follow-up) and surgeries done
+  at the Main Hub after referral also flow back.
+- A hub can only send data under its own name and only receives its own patients.
+
+---
+
+## Security
+
+| Area | Protection |
+|---|---|
+| Data at rest | Both databases are **encrypted** (`DB_ENCRYPTION_KEY`). Backups are encrypted too. A copied disk, USB stick or backup is unreadable without the key. |
+| First run | No default password. Setup requires a one-time **setup token** shown only on the server machine. |
+| Passwords | bcrypt; at least 12 characters with upper/lower case, digit and symbol; forced change after an admin creates or resets an account |
+| Login | Per-account lockout after 5 failures (15 min, admin can unlock); per-IP throttling; no account enumeration |
+| Sessions | Random token in an HttpOnly, SameSite=Strict cookie (Secure under HTTPS); only a hash stored; 12 h lifetime; ended on password change, role change or disable |
+| Requests | CSRF tokens + same-origin check on every state-changing request; strict security headers (CSP, frame denial, nosniff) |
+| Access | Role checks on every API route and page; patient names hidden from researcher/viewer roles |
+| Sync | Per-hub API key (only a hash stored on the Main Hub; encrypted on the Regional Hub); key verified when saved; key rotation; refuses plain `http://` to internet hosts |
+| Research | De-identified export contains **only patients with research consent**: no names, phones, ID numbers, exact birth dates, towns or GPS, and a pseudonymous research ID |
+| Accountability | Audit log of every login, change, patient view, export and sync (Audit Log page) |
+| Integrity | Input validated with Zod; parameterised SQL; stored data never altered by "sanitising"; CSV formula-injection protection |
+
+**Your responsibilities when deploying** (see DEPLOY.md):
+- Keep a safe copy of each hub's `.env`. **Without `DB_ENCRYPTION_KEY` the data can never be recovered.**
+- Use **HTTPS** whenever the Main Hub is reached over the internet.
+- Keep the server machines physically secure and up to date.
+
+---
+
+## Development
+
+Requirements: Node.js 20+ (22 LTS recommended), npm.
 
 ```bash
 git clone https://github.com/Gatoyah/national-cleft-register.git
 cd national-cleft-register
 ```
 
-## 2. Install dependencies
-
 ```bash
-cd "Main Hub" && npm install
-cd "../Regional Hub" && npm install
-cd ..
+npm run install:all
 ```
 
-## 3. Configure environment variables
-
-Neither app ships with a `.env` file (they're git-ignored, since they hold secrets) —
-you need to create one for each app from the provided `.env.example`.
+Start each app in its own terminal. `npm run dev` creates `.env` with fresh secrets and
+sets up the database automatically:
 
 ```bash
-cp "Main Hub/.env.example" "Main Hub/.env"
-cp "Regional Hub/.env.example" "Regional Hub/.env"
+cd "Main Hub" && npm run dev
 ```
-
-Then open each `.env` and replace the placeholder secret values
-(`SESSION_SECRET`, `CSRF_SECRET`, `ENCRYPTION_KEY`) with your own random hex strings,
-e.g.:
 
 ```bash
-openssl rand -hex 32
+cd "Regional Hub" && npm run dev
 ```
 
-The `DATABASE_URL` defaults (`file:main_hub.db` and `file:local.db`) are fine for local
-development — they create a SQLite file inside each app's own folder.
+Open <http://localhost:3000> and <http://localhost:3001>. Each shows the setup wizard. The
+**setup token** is printed in that app's terminal (and saved in `setup-token.txt`).
 
-## 4. Initialize the databases
+To connect them: on the Main Hub go to **Regional Hubs → Add Regional Hub** (use the same
+code you gave the Regional Hub in its setup, e.g. `TTH`) and copy the API key. On the
+Regional Hub go to **Sync with Main Hub → Edit connection**, enter `http://localhost:3000`
+and the key, then **Save and test**.
+
+Schema changes (Main Hub): edit `src/db/schema.ts`, then `npm run db:generate`. The new
+migration in `drizzle/` is applied automatically on the next start. Regional Hub: add the
+column to `src/db/schema.ts` and to `ADDED_COLUMNS` in `init-db.mjs`.
+
+### Tests
 
 ```bash
-cd "Main Hub" && npx drizzle-kit push
-cd "../Regional Hub" && node init-db.mjs
-cd ..
+npm run build
 ```
-
-## 5. Start both apps
-
-In two separate terminals:
 
 ```bash
-cd "Main Hub" && npm run dev          # http://localhost:3000
-cd "Regional Hub" && npm run dev -- -p 3001   # http://localhost:3001
+npm run check
 ```
-
-## 6. Create the default admin accounts
-
-Each app needs a one-time setup call to create its first admin user. **Do this after**
-the server is running:
 
 ```bash
-curl -X POST http://localhost:3000/api/auth/setup   # Main Hub
-curl -X POST http://localhost:3001/api/auth/setup   # Regional Hub
+npm test
 ```
 
-Both create the same default login:
+`npm test` starts both production servers on throwaway encrypted databases and runs:
 
-- **Email:** `admin@ncr.gov.gh`
-- **Password:** `Admin123!`
+- `tests/e2e.mjs` (118 checks): setup, every role's API and page permissions, account
+  lockout/reset/disable, patient data entry, sync both ways, offline queueing and recovery,
+  automatic sync, key rotation, idempotency, encryption at rest, backups, research export
+  de-identification, and every page loading without errors.
+- `tests/ui.mjs` (18 checks, real Chromium browser via Playwright): setup wizard, creating a
+  user, forced password change, role-filtered menus, patient forms, connecting and syncing
+  from the Sync page, and downloading a research export. Screenshots go to
+  `test-results/screenshots/`. Needs Playwright: `npm install --no-save playwright && npx playwright install chromium`.
 
-The Regional Hub's setup response also returns a one-time sync API key — you don't need
-to save it manually, since you'll generate a fresh, correctly-linked one in step 7.
+---
 
-You can now log in to both apps at `http://localhost:3000/login` and
-`http://localhost:3001/login`.
+## Compile, package and send
 
-## 7. Connect the Regional Hub to the Main Hub (enable sync)
+The packager builds both apps and produces ready-to-install archives that contain the
+server, only the files it needs, the native database driver **for the target operating
+system**, and (with `--with-node`) a portable Node.js. The hospital machine needs
+**nothing installed** and no internet.
 
-The Main Hub and Regional Hub don't know about each other until you link them
-explicitly — each `/api/auth/setup` call only sets up that app in isolation.
+Run it on any Windows, macOS or Linux machine with Node.js and internet access:
 
-1. **On the Main Hub**, log in as admin and go to **Regional Hubs → Register New
-   Regional Hub**. Fill in a name and code for your regional facility (e.g. name
-   `Regional Cleft Centre`, code `RCC`) and submit.
-2. The Main Hub will show you a **sync API key** — copy it now, it's only shown once.
-3. **On the Regional Hub**, log in as admin and go to **Sync Data**, then click
-   **Edit** on the "Facility Configuration" card. Enter:
-   - **Facility Code** — the code you used in step 1 (e.g. `RCC`)
-   - **Main Hub URL** — `http://localhost:3000`
-   - **API Key** — the key copied in step 2
-4. Save. The Regional Hub can now sync — any patient or surgery you register there will
-   appear in the queue on the **Sync Data** page, ready to push with **Sync Now**.
+```bash
+npm run install:all
+```
 
-Once synced, a patient registered on the Regional Hub is assigned an official NCR ID by
-the Main Hub, which syncs back down to the Regional Hub's own record.
+For Windows hospital PCs (most common):
+
+```bash
+npm run package:windows
+```
+
+For Linux servers:
+
+```bash
+npm run package:linux
+```
+
+Other targets: `node package-for-deployment.mjs --target <win-x64|linux-x64|linux-arm64|darwin-x64|darwin-arm64> --with-node`.
+
+Output, e.g. in `dist/win-x64/`:
+
+```
+ncr-main-hub-win-x64.zip        about 42 MB, for the national centre
+ncr-regional-hub-win-x64.zip    about 42 MB, one copy for each regional hospital
+SHA256SUMS.txt                  checksums to verify the files arrived intact
+```
+
+### Sending the packages to someone
+
+1. Send the `.zip` files **and** `SHA256SUMS.txt` by USB drive, a shared drive (Google
+   Drive/OneDrive/SharePoint link), or any file transfer. They contain **no patient data and
+   no secrets**: each installation generates its own keys on first start.
+2. The receiver checks the files are intact:
+   - Windows (PowerShell): `Get-FileHash .\ncr-regional-hub-win-x64.zip -Algorithm SHA256`
+   - Linux/macOS: `sha256sum -c SHA256SUMS.txt`
+
+   and compares the result with `SHA256SUMS.txt`.
+3. The receiver follows **DEPLOY.md** (also included inside each package).
+4. For each Regional Hub, the Main Hub administrator separately sends the hub's **sync API
+   key** through a different, private channel (phone call or in person, not in the same
+   email as the files).
+
+**Never send** a hub's `.env` file, `*.db` database files or the `backups/` folder by email
+or chat. They are the keys to patient data and the data itself.
+
+### Updating an installation
+
+Build new packages the same way. On the hospital machine: stop the app, back up the
+folder, then copy the new files **over** the old folder, keeping `.env`, the `.db` file
+and `backups/`. On the next start, `start.bat`/`start.sh` backs up the database and applies
+any database upgrades automatically.
 
 ---
 
@@ -112,44 +230,19 @@ the Main Hub, which syncs back down to the Regional Hub's own record.
 
 ```
 national-cleft-register/
-├── Main Hub/          # National-level Next.js app (port 3000)
-│   ├── src/app/        # Pages and API routes
-│   ├── src/db/         # Drizzle schema + SQLite client
-│   └── .env.example
-├── Regional Hub/       # Facility-level Next.js app (port 3001)
-│   ├── src/app/
-│   ├── src/db/
-│   └── .env.example
-└── README.md
+├── Main Hub/                  National app (Next.js, port 3000)
+│   ├── src/app/               Pages and API routes
+│   ├── src/lib/               auth, permissions, sync auth, export, setup, backup
+│   ├── src/db/schema.ts       Database schema (Drizzle ORM)
+│   ├── drizzle/               Database migrations (applied by migrate.mjs)
+│   ├── deploy/start.bat|.sh   Launchers copied into the package
+│   └── setup-env.mjs, migrate.mjs, backup.mjs
+├── Regional Hub/              Facility app (Next.js, port 3001)
+│   ├── src/lib/sync.ts        Offline queue + sync engine
+│   └── setup-env.mjs, init-db.mjs, backup.mjs, deploy/
+├── tests/                     End-to-end and browser tests
+├── package-for-deployment.mjs Builds the installable packages
+└── DEPLOY.md                  Hospital installation guide
 ```
 
-## Tech stack
-
-- Next.js 16 (App Router, Turbopack)
-- Drizzle ORM + SQLite (via `@libsql/client`)
-- Tailwind CSS
-- Zod for request validation
-- bcrypt for password hashing, HMAC-based CSRF tokens, AES-256-GCM for API key
-  encryption at rest
-
-## Security notes
-
-- Passwords are hashed with bcrypt (12 rounds).
-- Sessions use SHA-256-hashed tokens stored in HTTP-only cookies.
-- The Regional Hub's sync API key is encrypted at rest (AES-256-GCM) and only ever
-  shown in plaintext once, at issuance.
-- All state-changing requests require a CSRF token fetched from `/api/auth/csrf`.
-- Rate limiting applies to login (5 attempts / 15 min) and sync (10 requests / min).
-- All create/update/delete actions are written to an audit log.
-
-## Troubleshooting
-
-- **"Setup already completed" from `/api/auth/setup`**: the database already has an
-  admin user. Either use the existing `admin@ncr.gov.gh` login, or delete the `.db`
-  file and re-run steps 4 and 6 for a clean slate.
-- **Sync always shows 0 records uploaded**: the Regional Hub's Facility Configuration
-  (facility code, Main Hub URL, API key) hasn't been set, or doesn't match a hub
-  actually registered on the Main Hub. Repeat step 7.
-- **A page shows a blank/500 error after pulling new code**: stop and restart
-  `npm run dev` — Turbopack's dev cache can occasionally get out of sync after schema
-  or route changes.
+Tech: Next.js 16, React 19, Drizzle ORM, SQLite via libsql (encrypted), Zod, Tailwind CSS.

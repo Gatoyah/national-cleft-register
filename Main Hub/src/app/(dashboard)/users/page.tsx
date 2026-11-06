@@ -1,3 +1,4 @@
+import { requirePagePermission } from "@/lib/auth";
 import { db, users, facilities } from "@/db";
 import { desc, eq, count } from "drizzle-orm";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -50,6 +51,7 @@ async function getUserStats() {
 }
 
 export default async function UsersPage() {
+  await requirePagePermission("users.manage");
   const [userList, stats] = await Promise.all([getUsers(), getUserStats()]);
 
   return (

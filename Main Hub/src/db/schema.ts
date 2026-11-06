@@ -222,6 +222,11 @@ export const users = pgTable("users", {
   professionalId: varchar("professional_id", { length: 50 }),
   isActive: boolean("is_active").default(true),
   lastLoginAt: timestamp("last_login_at"),
+  failedLoginAttempts: integer("failed_login_attempts").default(0),
+  lockedUntil: timestamp("locked_until"),
+  mustChangePassword: boolean("must_change_password").default(false),
+  passwordChangedAt: timestamp("password_changed_at"),
+  createdByUserId: integer("created_by_user_id"),
   createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
   updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
@@ -417,6 +422,9 @@ export const diagnoses = pgTable("diagnoses", {
   diagnosedByUserId: integer("diagnosed_by_user_id").references(() => users.id),
   diagnosedAtFacilityId: integer("diagnosed_at_facility_id").references(() => facilities.id),
   isPrimaryDiagnosis: boolean("is_primary_diagnosis").default(true),
+  // Sync provenance (records that came from a Regional Hub)
+  sourceLocalId: varchar("source_local_id", { length: 64 }),
+  sourceFacilityId: integer("source_facility_id").references(() => facilities.id),
   createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
   updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
@@ -519,6 +527,10 @@ export const surgeries = pgTable("surgeries", {
   immediatePostOpPhoto: text("immediate_post_op_photo"),
   // Facility
   facilityId: integer("facility_id").references(() => facilities.id),
+  surgeonName: varchar("surgeon_name", { length: 255 }),
+  // Sync provenance (records that came from a Regional Hub)
+  sourceLocalId: varchar("source_local_id", { length: 64 }),
+  sourceFacilityId: integer("source_facility_id").references(() => facilities.id),
   createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
   updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });

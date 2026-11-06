@@ -1,391 +1,236 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { useCsrf } from "@/hooks/useCsrf";
+import { ErrorBox, describeApiError } from "@/components/AuthShell";
 
-interface SyncStatus {
+interface SyncStatusData {
   facility: {
     code: string;
     name: string;
     region: string;
+    mainHubUrl: string | null;
+    apiKeyConfigured: boolean;
     mainHubConfigured: boolean;
-    syncEnabled: boolean;
-    lastSyncAt: string | null;
+    urlWarning: string | null;
+    syncEnabled: boolean | null;
+    lastPullAt: string | null;
+    autoSyncMinutes: number;
   } | null;
-  stats: {
-    pendingQueue: number;
-    pendingPatients: number;
-    pendingSurgeries: number;
-    totalPatients: number;
-    totalSurgeries: number;
-  };
-  timestamp: string;
+  stats: { pendingQueue: number; failedQueue: number; pendingPatients: number; totalPatients: number; totalSurgeries: number };
+  lastSyncAt: string | null;
+  lastSyncError: string | null;
+  queue: { id: number; tableName: string; recordLocalId: string; status: string; attempts: number; lastError: string | null; lastAttemptAt: string | null }[];
 }
 
+interface SyncRunResult {
+  ok: boolean;
+  skipped?: string;
+  error?: string;
+  pushed: { patients: number; surgeries: number };
+  failed: { patients: number; surgeries: number };
+  waiting: number;
+  pulled: { patients: number; surgeries: number };
+}
+
+const when = (v: string | null) => (v ? new Date(v).toLocaleString("en-GB") : "Never");
+
 export default function SyncPage() {
-  const [status, setStatus] = useState<SyncStatus | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<string | null>(null);
-  const [isOnline, setIsOnline] = useState(true);
-  const [isEditingConfig, setIsEditingConfig] = useState(false);
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
-  const [configError, setConfigError] = useState<string | null>(null);
-  const [configSuccess, setConfigSuccess] = useState<string | null>(null);
+  const { getCsrfHeaders } = useCsrf();
+  const [status, setStatus] = useState<SyncStatusData | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [result, setResult] = useState<SyncRunResult | null>(null);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState<{ message: string; details: string[] }>({ message: "", details: [] });
+
+  const load = useCallback(async () => {
+    const res = await fetch("/api/sync/status");
+    if (res.ok) setStatus(await res.json());
+  }, []);
 
   useEffect(() => {
-    setIsOnline(navigator.onLine);
-    
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    
-    fetchStatus();
-    
+    let active = true;
+    const tick = () =>
+      fetch("/api/sync/status")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => active && d && setStatus(d))
+        .catch(() => {});
+    tick();
+    const t = setInterval(tick, 15_000);
     return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
+      active = false;
+      clearInterval(t);
     };
   }, []);
 
-  async function fetchStatus() {
+  async function post(url: string, body?: unknown, method = "POST") {
+    setBusy(true);
+    setError({ message: "", details: [] });
+    setNotice("");
     try {
-      const res = await fetch("/api/sync/status");
-      if (res.ok) {
-        const data = await res.json();
-        setStatus(data);
-      }
-    } catch (error) {
-      console.error("Failed to fetch sync status:", error);
-    }
-  }
-
-  async function handleSync() {
-    if (!isOnline) {
-      setSyncResult("Cannot sync while offline. Connect to the internet first.");
-      return;
-    }
-
-    setIsSyncing(true);
-    setSyncResult(null);
-
-    try {
-      const res = await fetch("/api/sync/push", { method: "POST" });
-      const data = await res.json();
-      
-      if (res.ok) {
-        const total = (data.results?.patients?.success || 0) + (data.results?.surgeries?.success || 0);
-        setSyncResult(`Sync completed. ${total} records uploaded successfully.`);
-        fetchStatus();
-      } else {
-        setSyncResult(`Sync failed: ${data.error || "Unknown error"}`);
-      }
-    } catch (error) {
-      setSyncResult(`Sync error: ${error instanceof Error ? error.message : "Unknown error"}`);
+      const res = await fetch(url, { method, headers: getCsrfHeaders(), body: body ? JSON.stringify(body) : undefined });
+      const data = await res.json().catch(() => ({}));
+      await load();
+      return { ok: res.ok, data };
+    } catch {
+      setError({ message: "Could not reach this hub's server", details: [] });
+      return { ok: false, data: {} };
     } finally {
-      setIsSyncing(false);
+      setBusy(false);
     }
   }
 
-  const hasPendingData = status && (status.stats.pendingQueue > 0 || status.stats.pendingPatients > 0 || status.stats.pendingSurgeries > 0);
+  async function syncNow() {
+    const { data } = await post("/api/sync/push");
+    if (data && "pushed" in data) setResult(data as SyncRunResult);
+    else if (data?.error) setError(describeApiError(data));
+  }
 
-  async function handleSaveConfig(e: React.FormEvent<HTMLFormElement>) {
+  async function retry() {
+    const { ok, data } = await post("/api/sync/retry");
+    if (ok) setNotice(`${data.requeued} record(s) put back in the queue.`);
+    else setError(describeApiError(data));
+  }
+
+  async function saveConfig(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setIsSavingConfig(true);
-    setConfigError(null);
-    setConfigSuccess(null);
-
-    const formData = new FormData(e.currentTarget);
-    const body = {
-      facilityCode: formData.get("facilityCode"),
-      facilityName: formData.get("facilityName"),
-      mainHubUrl: formData.get("mainHubUrl"),
-      apiKey: formData.get("apiKey"),
-    };
-
-    try {
-      const res = await fetch("/api/sync/config", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to save configuration");
-      }
-
-      setConfigSuccess("Sync configuration saved.");
-      setIsEditingConfig(false);
-      fetchStatus();
-    } catch (err) {
-      setConfigError(err instanceof Error ? err.message : "An error occurred");
-    } finally {
-      setIsSavingConfig(false);
-    }
+    const f = new FormData(e.currentTarget);
+    const { ok, data } = await post(
+      "/api/sync/config",
+      {
+        facilityCode: f.get("facilityCode"),
+        facilityName: f.get("facilityName"),
+        mainHubUrl: f.get("mainHubUrl"),
+        apiKey: f.get("apiKey") || undefined,
+        syncEnabled: f.get("syncEnabled") === "on",
+      },
+      "PATCH"
+    );
+    if (ok) {
+      setNotice(data.message);
+      setEditing(false);
+    } else setError(describeApiError(data));
   }
+
+  const f = status?.facility;
+  const waiting = (status?.stats.pendingQueue ?? 0) + (status?.stats.failedQueue ?? 0);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Data Synchronization</h1>
-          <p className="text-gray-500 mt-1">Sync local data with the Main Hub (KATH)</p>
+          <h1 className="text-2xl font-bold text-gray-900">Sync with Main Hub</h1>
+          <p className="text-gray-500 mt-1">
+            Everything is saved on this hub first, so work continues without internet. Records are sent to the Main Hub
+            automatically every {f?.autoSyncMinutes ?? 5} minutes whenever it can be reached.
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${isOnline ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-            <div className={`w-2 h-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-amber-500"}`} />
-            <span className="text-sm font-medium">{isOnline ? "Online" : "Offline"}</span>
-          </div>
-          <Button onClick={handleSync} isLoading={isSyncing} disabled={!isOnline || !hasPendingData}>
-            {isSyncing ? "Syncing..." : "Sync Now"}
-          </Button>
+        <div className="flex gap-2">
+          {(status?.stats.failedQueue ?? 0) > 0 && (
+            <Button variant="outline" onClick={retry} disabled={busy}>Retry failed</Button>
+          )}
+          <Button onClick={syncNow} isLoading={busy} disabled={!f?.mainHubConfigured}>Sync now</Button>
         </div>
       </div>
 
-      {syncResult && (
-        <div className={`p-4 rounded-lg ${syncResult.includes("failed") || syncResult.includes("error") ? "bg-red-50 text-red-700 border border-red-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"}`}>
-          {syncResult}
+      <ErrorBox message={error.message} details={error.details} />
+      {notice && <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-sm">{notice}</div>}
+      {result && (
+        <div className={`p-4 rounded-lg border text-sm ${result.ok ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-amber-50 border-amber-200 text-amber-900"}`}>
+          {result.skipped ? (
+            <p>{result.skipped}</p>
+          ) : (
+            <>
+              <p className="font-medium">{result.ok ? "Sync completed." : "Sync could not finish."}</p>
+              {result.error && <p>{result.error}</p>}
+              <p>
+                Sent {result.pushed.patients} patient(s) and {result.pushed.surgeries} surgery record(s). Received{" "}
+                {result.pulled.patients} patient update(s) and {result.pulled.surgeries} surgery record(s).
+                {result.waiting > 0 && ` ${result.waiting} record(s) will be retried.`}
+                {result.failed.patients + result.failed.surgeries > 0 && ` ${result.failed.patients + result.failed.surgeries} record(s) were rejected — see below.`}
+              </p>
+            </>
+          )}
         </div>
       )}
 
-      {/* Facility Info */}
-      {status?.facility && (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card><CardContent><p className="text-sm text-gray-500">Waiting to sync</p><p className={`text-2xl font-bold ${waiting ? "text-amber-600" : "text-emerald-600"}`}>{status?.stats.pendingQueue ?? "–"}</p></CardContent></Card>
+        <Card><CardContent><p className="text-sm text-gray-500">Rejected by Main Hub</p><p className={`text-2xl font-bold ${status?.stats.failedQueue ? "text-red-600" : ""}`}>{status?.stats.failedQueue ?? "–"}</p></CardContent></Card>
+        <Card><CardContent><p className="text-sm text-gray-500">Patients on this hub</p><p className="text-2xl font-bold">{status?.stats.totalPatients ?? "–"}</p></CardContent></Card>
+        <Card><CardContent><p className="text-sm text-gray-500">Surgeries on this hub</p><p className="text-2xl font-bold">{status?.stats.totalSurgeries ?? "–"}</p></CardContent></Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Connection</CardTitle>
+          <CardDescription>
+            Last successful sync: {when(status?.lastSyncAt ?? null)}
+            {status?.lastSyncError && <span className="block text-amber-700 mt-1">Last problem: {status.lastSyncError}</span>}
+            {f?.urlWarning && <span className="block text-red-700 mt-1">{f.urlWarning}</span>}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!editing ? (
+            <div className="space-y-2 text-sm">
+              <p><span className="text-gray-500 w-40 inline-block">Hospital</span>{f?.name} ({f?.code})</p>
+              <p><span className="text-gray-500 w-40 inline-block">Main Hub URL</span>{f?.mainHubUrl || <em className="text-amber-700">not set</em>}</p>
+              <p><span className="text-gray-500 w-40 inline-block">API key</span>{f?.apiKeyConfigured ? "Saved (encrypted)" : <em className="text-amber-700">not set</em>}</p>
+              <p><span className="text-gray-500 w-40 inline-block">Automatic sync</span>{f?.syncEnabled === false ? "Off" : `On, every ${f?.autoSyncMinutes ?? 5} min`}</p>
+              <Button variant="outline" className="mt-3" onClick={() => setEditing(true)}>Edit connection</Button>
+            </div>
+          ) : (
+            <form onSubmit={saveConfig} className="space-y-4 max-w-xl">
+              <Input label="Hospital name" name="facilityName" defaultValue={f?.name} required />
+              <Input label="Facility code" name="facilityCode" defaultValue={f?.code} required hint="Exactly as registered on the Main Hub (Regional Hubs page)." />
+              <Input label="Main Hub URL" name="mainHubUrl" defaultValue={f?.mainHubUrl ?? ""} required placeholder="https://ncr-main.example.gov.gh" hint="Use https:// over the internet. http:// is only allowed on a private network or VPN." />
+              <Input label="API key" name="apiKey" type="password" autoComplete="off" placeholder={f?.apiKeyConfigured ? "Leave empty to keep the saved key" : "ncr_..."} hint="Shown once on the Main Hub when the hub was registered (or a new key was issued)." />
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="syncEnabled" defaultChecked={f?.syncEnabled !== false} className="w-4 h-4" />
+                Sync automatically in the background
+              </label>
+              <div className="flex gap-2">
+                <Button type="submit" isLoading={busy}>Save and test</Button>
+                <Button type="button" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
+              </div>
+            </form>
+          )}
+        </CardContent>
+      </Card>
+
+      {status && status.queue.length > 0 && (
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Facility Configuration</CardTitle>
-              {!isEditingConfig && (
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={() => {
-                    setIsEditingConfig(true);
-                    setConfigSuccess(null);
-                    setConfigError(null);
-                  }}
-                >
-                  Edit
-                </Button>
-              )}
-            </div>
+            <CardTitle>Records with sync problems</CardTitle>
+            <CardDescription>&quot;Pending&quot; records are retried automatically. &quot;Failed&quot; records were rejected by the Main Hub; fix the data, then press &quot;Retry failed&quot;.</CardDescription>
           </CardHeader>
-          <CardContent>
-            {configSuccess && !isEditingConfig && (
-              <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm">
-                {configSuccess}
-              </div>
-            )}
-            {isEditingConfig ? (
-              <form onSubmit={handleSaveConfig} className="space-y-4">
-                <p className="text-sm text-gray-500">
-                  Enter the facility code and API key issued by the Main Hub when this
-                  regional hub was registered (Main Hub &rarr; Regional Hubs &rarr; Register
-                  New Regional Hub).
-                </p>
-                {configError && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                    {configError}
-                  </div>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Facility Code</label>
-                    <input
-                      name="facilityCode"
-                      required
-                      defaultValue={status.facility.code}
-                      className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
-                      placeholder="e.g. KATH"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Facility Name</label>
-                    <input
-                      name="facilityName"
-                      defaultValue={status.facility.name}
-                      className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Main Hub URL</label>
-                  <input
-                    name="mainHubUrl"
-                    required
-                    defaultValue="http://localhost:3000"
-                    className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
-                    placeholder="http://localhost:3000"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
-                  <input
-                    name="apiKey"
-                    required
-                    className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 font-mono text-sm"
-                    placeholder="Paste the key issued by the Main Hub"
-                  />
-                </div>
-                <div className="flex justify-end gap-3">
-                  <Button variant="outline" type="button" onClick={() => setIsEditingConfig(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" isLoading={isSavingConfig}>
-                    Save Configuration
-                  </Button>
-                </div>
-              </form>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <p className="text-sm text-gray-500">Facility</p>
-                  <p className="font-medium">{status.facility.name}</p>
-                  <p className="text-sm text-gray-400 font-mono">{status.facility.code}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Region</p>
-                  <p className="font-medium capitalize">{status.facility.region.replace(/_/g, " ")}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Main Hub</p>
-                  {status.facility.mainHubConfigured ? (
-                    <Badge variant="success">Configured</Badge>
-                  ) : (
-                    <Badge variant="danger">Not Configured</Badge>
-                  )}
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Last Sync</p>
-                  <p className="font-medium">
-                    {status.facility.lastSyncAt
-                      ? new Date(status.facility.lastSyncAt).toLocaleString()
-                      : "Never"
-                    }
-                  </p>
-                </div>
-              </div>
-            )}
+          <CardContent className="p-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-gray-500">
+                  <th className="py-2 px-4">Type</th><th className="py-2 px-4">Record</th><th className="py-2 px-4">Status</th>
+                  <th className="py-2 px-4">Attempts</th><th className="py-2 px-4">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {status.queue.map((q) => (
+                  <tr key={q.id} className="border-b last:border-0">
+                    <td className="py-2 px-4 capitalize">{q.tableName}</td>
+                    <td className="py-2 px-4 font-mono text-xs">{q.recordLocalId.slice(0, 8)}</td>
+                    <td className={`py-2 px-4 ${q.status === "failed" ? "text-red-600" : "text-amber-700"}`}>{q.status}</td>
+                    <td className="py-2 px-4">{q.attempts}</td>
+                    <td className="py-2 px-4 text-xs">{q.lastError}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </CardContent>
         </Card>
       )}
-
-      {/* Sync Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Pending in Queue</p>
-            <p className={`text-3xl font-bold ${status?.stats.pendingQueue ? "text-amber-600" : "text-gray-900"}`}>
-              {status?.stats.pendingQueue || 0}
-            </p>
-            <p className="text-sm text-gray-400 mt-1">Records waiting to sync</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Pending Patients</p>
-            <p className={`text-3xl font-bold ${status?.stats.pendingPatients ? "text-amber-600" : "text-gray-900"}`}>
-              {status?.stats.pendingPatients || 0}
-            </p>
-            <p className="text-sm text-gray-400 mt-1">Of {status?.stats.totalPatients || 0} total</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Pending Surgeries</p>
-            <p className={`text-3xl font-bold ${status?.stats.pendingSurgeries ? "text-amber-600" : "text-gray-900"}`}>
-              {status?.stats.pendingSurgeries || 0}
-            </p>
-            <p className="text-sm text-gray-400 mt-1">Of {status?.stats.totalSurgeries || 0} total</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* How Sync Works */}
-      <Card>
-        <CardHeader>
-          <CardTitle>How Synchronization Works</CardTitle>
-          <CardDescription>Offline-first data entry with automatic sync</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="text-center p-4">
-              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-xl">1</span>
-              </div>
-              <h3 className="font-medium">Enter Data</h3>
-              <p className="text-sm text-gray-500 mt-1">Works offline. Data stored locally.</p>
-            </div>
-            <div className="text-center p-4">
-              <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-xl">2</span>
-              </div>
-              <h3 className="font-medium">Queue Created</h3>
-              <p className="text-sm text-gray-500 mt-1">Records marked as pending sync.</p>
-            </div>
-            <div className="text-center p-4">
-              <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-xl">3</span>
-              </div>
-              <h3 className="font-medium">Sync to Hub</h3>
-              <p className="text-sm text-gray-500 mt-1">Click "Sync Now" when online.</p>
-            </div>
-            <div className="text-center p-4">
-              <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-xl">4</span>
-              </div>
-              <h3 className="font-medium">NCR ID Assigned</h3>
-              <p className="text-sm text-gray-500 mt-1">Main hub assigns official ID.</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Security Notice */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Security Information</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3 text-sm">
-            <div className="flex items-start gap-3">
-              <div className="w-5 h-5 bg-emerald-100 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
-                <svg className="w-3 h-3 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <p className="text-gray-600">All data is encrypted during transmission (TLS 1.3)</p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-5 h-5 bg-emerald-100 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
-                <svg className="w-3 h-3 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <p className="text-gray-600">API key authentication prevents unauthorized access</p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-5 h-5 bg-emerald-100 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
-                <svg className="w-3 h-3 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <p className="text-gray-600">Local database is encrypted at rest</p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-5 h-5 bg-emerald-100 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
-                <svg className="w-3 h-3 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <p className="text-gray-600">All actions are logged for audit purposes</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
