@@ -1,3 +1,4 @@
+import { requirePagePermission } from "@/lib/auth";
 import { db, patients, birthHistory, diagnoses, nutritionAssessments, surgeries, speechAssessments, appointments, outcomes } from "@/db";
 import { eq, desc } from "drizzle-orm";
 import { notFound } from "next/navigation";
@@ -41,6 +42,7 @@ async function getPatientData(patientId: number) {
 }
 
 export default async function PatientDetailPage({ params }: PageProps) {
+  await requirePagePermission("patients.view");
   const { id } = await params;
   const patientId = parseInt(id, 10);
   

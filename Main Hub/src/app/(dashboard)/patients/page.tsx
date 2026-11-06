@@ -1,5 +1,6 @@
+import { requirePagePermission } from "@/lib/auth";
 import { db, patients, diagnoses } from "@/db";
-import { desc, ilike, or, eq, count } from "drizzle-orm";
+import { desc, like, or, and, eq, count } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -40,10 +41,10 @@ async function getPatients(search?: string, region?: string, page: number = 1) {
   if (search) {
     conditions.push(
       or(
-        ilike(patients.firstName, `%${search}%`),
-        ilike(patients.lastName, `%${search}%`),
-        ilike(patients.ncrId, `%${search}%`),
-        ilike(patients.nhisNumber, `%${search}%`)
+        like(patients.firstName, `%${search}%`),
+        like(patients.lastName, `%${search}%`),
+        like(patients.ncrId, `%${search}%`),
+        like(patients.nhisNumber, `%${search}%`)
       )
     );
   }
@@ -53,7 +54,7 @@ async function getPatients(search?: string, region?: string, page: number = 1) {
   }
 
   if (conditions.length > 0) {
-    query = query.where(conditions.length === 1 ? conditions[0] : or(...conditions));
+    query = query.where(conditions.length === 1 ? conditions[0] : and(...conditions));
   }
 
   const [patientList, countResult] = await Promise.all([
@@ -70,6 +71,7 @@ async function getPatients(search?: string, region?: string, page: number = 1) {
 }
 
 export default async function PatientsPage({ searchParams }: PageProps) {
+  await requirePagePermission("patients.view");
   const params = await searchParams;
   const search = params.search || "";
   const region = params.region || "";

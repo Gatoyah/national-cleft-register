@@ -1,5 +1,7 @@
 "use client";
 
+import { describeApiError } from "@/components/AuthShell";
+
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
@@ -94,7 +96,8 @@ export default function NewSurgeryPage() {
 
       if (!res.ok) {
         const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to record surgery");
+        const { message, details } = describeApiError(errorData);
+        throw new Error(details.length ? `${message}: ${details.join("; ")}` : message || "Failed to record surgery");
       }
 
       const surgery = await res.json();

@@ -8,8 +8,6 @@ export function SyncStatus() {
   const [lastSync, setLastSync] = useState<Date | null>(null);
 
   useEffect(() => {
-    // Check online status
-    setIsOnline(navigator.onLine);
 
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);

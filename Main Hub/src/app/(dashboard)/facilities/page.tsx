@@ -1,3 +1,4 @@
+import { requirePagePermission } from "@/lib/auth";
 import { db, facilities, users, patients } from "@/db";
 import { count, eq, desc } from "drizzle-orm";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -40,6 +41,7 @@ async function getFacilities() {
 }
 
 export default async function FacilitiesPage() {
+  await requirePagePermission("facilities.view");
   const facilityList = await getFacilities();
 
   return (

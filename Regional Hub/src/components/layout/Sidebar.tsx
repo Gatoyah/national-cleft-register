@@ -4,16 +4,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-const navigation = [
+const navigation: { name: string; href: string; icon: (p: { className?: string }) => React.ReactElement; permission?: string }[] = [
   { name: "Dashboard", href: "/dashboard", icon: DashboardIcon },
-  { name: "Patients", href: "/patients", icon: PatientsIcon },
-  { name: "Surgeries", href: "/surgeries", icon: SurgeryIcon },
-  { name: "Statistics", href: "/statistics", icon: StatsIcon },
-  { name: "Sync Data", href: "/sync", icon: SyncIcon },
-  { name: "Users", href: "/users", icon: UsersIcon },
+  { name: "Patients", href: "/patients", icon: PatientsIcon, permission: "patients.view" },
+  { name: "Surgeries", href: "/surgeries", icon: SurgeryIcon, permission: "surgeries.view" },
+  { name: "Statistics", href: "/statistics", icon: StatsIcon, permission: "stats.view" },
+  { name: "Sync with Main Hub", href: "/sync", icon: SyncIcon, permission: "sync.manage" },
+  { name: "Users", href: "/users", icon: UsersIcon, permission: "users.manage" },
+  { name: "Audit Log", href: "/audit", icon: StatsIcon, permission: "audit.view" },
+  { name: "My Account", href: "/account", icon: UsersIcon },
 ];
 
-export function Sidebar() {
+export function Sidebar({ permissions }: { permissions: string[] }) {
   const pathname = usePathname();
 
   return (
@@ -31,7 +33,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navigation.map((item) => {
+        {navigation.filter((item) => !item.permission || permissions.includes(item.permission)).map((item) => {
           const isActive = pathname.startsWith(item.href);
           return (
             <Link

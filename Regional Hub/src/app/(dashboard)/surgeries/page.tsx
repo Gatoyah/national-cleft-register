@@ -1,3 +1,4 @@
+import { requirePagePermission } from "@/lib/auth";
 import { db, surgeries, patients } from "@/db";
 import { desc, eq, count } from "drizzle-orm";
 import { Card } from "@/components/ui/Card";
@@ -50,6 +51,7 @@ interface PageProps {
 }
 
 export default async function SurgeriesPage({ searchParams }: PageProps) {
+  await requirePagePermission("surgeries.view");
   const params = await searchParams;
   const page = parseInt(params.page || "1", 10);
   const { surgeries: surgeryList, total, limit } = await getSurgeries(page);

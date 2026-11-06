@@ -1,158 +1,90 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, patients, diagnoses, syncQueue } from "@/db";
-import { getCurrentUser } from "@/lib/auth";
-import { logAudit, addSecurityHeaders, sanitizeObject, checkRateLimit } from "@/lib/security";
-import { desc, count, eq } from "drizzle-orm";
-import { z } from "zod";
-
-const createPatientSchema = z.object({
-  firstName: z.string().min(1).max(100),
-  middleName: z.string().max(100).optional(),
-  lastName: z.string().min(1).max(100),
-  dateOfBirth: z.string().min(1),
-  sex: z.enum(["male", "female", "intersex"]),
-  placeOfBirth: z.string().max(255).optional(),
-  regionOfResidence: z.enum([
-    "ashanti", "greater_accra", "northern", "western", "eastern",
-    "central", "volta", "upper_east", "upper_west", "bono",
-    "bono_east", "ahafo", "western_north", "oti", "north_east", "savannah"
-  ]),
-  districtOfResidence: z.string().max(100).optional(),
-  townVillage: z.string().max(255).optional(),
-  gpsLatitude: z.string().optional(),
-  gpsLongitude: z.string().optional(),
-  caregiverName: z.string().min(1).max(255),
-  caregiverRelationship: z.string().max(50).optional(),
-  caregiverPhone: z.string().max(20).optional(),
-  caregiverPhone2: z.string().max(20).optional(),
-  // Diagnosis
-  cleftType: z.enum(["cleft_lip_only", "cleft_palate_only", "cleft_lip_and_palate"]).optional(),
-  lipLaterality: z.enum(["unilateral_left", "unilateral_right", "bilateral", "midline"]).optional(),
-});
+import { db, patients, diagnoses } from "@/db";
+import { requirePermission, requireMutation } from "@/lib/auth";
+import { sanitizeObject } from "@/lib/sanitize";
+import { logAudit } from "@/lib/audit";
+import { apiError } from "@/lib/api";
+import { createPatientSchema } from "@/lib/schemas";
+import { enqueue, syncSoon } from "@/lib/sync";
+import { desc, count, like, or } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-      );
-    }
+    const user = await requireMutation(request, "patients.create");
+    if (user instanceof NextResponse) return user;
 
-    // Rate limiting
-    const rateLimit = await checkRateLimit(String(user.id), "/api/patients", "api");
-    if (!rateLimit.allowed) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
-      );
-    }
+    const d = createPatientSchema.parse(sanitizeObject(await request.json()));
 
-    const body = await request.json();
-    const sanitizedBody = sanitizeObject(body);
-    const validatedData = createPatientSchema.parse(sanitizedBody);
-
-    // Create patient
+    // Saved locally first — works with no internet. The sync queue carries it to the Main Hub later.
     const [newPatient] = await db
       .insert(patients)
       .values({
-        firstName: validatedData.firstName,
-        middleName: validatedData.middleName || null,
-        lastName: validatedData.lastName,
-        dateOfBirth: validatedData.dateOfBirth,
-        sex: validatedData.sex,
-        placeOfBirth: validatedData.placeOfBirth || null,
-        regionOfResidence: validatedData.regionOfResidence,
-        districtOfResidence: validatedData.districtOfResidence || null,
-        townVillage: validatedData.townVillage || null,
-        gpsLatitude: validatedData.gpsLatitude || null,
-        gpsLongitude: validatedData.gpsLongitude || null,
-        caregiverName: validatedData.caregiverName,
-        caregiverRelationship: validatedData.caregiverRelationship || null,
-        caregiverPhone: validatedData.caregiverPhone || null,
-        caregiverPhone2: validatedData.caregiverPhone2 || null,
+        firstName: d.firstName,
+        middleName: d.middleName || null,
+        lastName: d.lastName,
+        dateOfBirth: d.dateOfBirth,
+        sex: d.sex,
+        placeOfBirth: d.placeOfBirth || null,
+        regionOfResidence: d.regionOfResidence,
+        districtOfResidence: d.districtOfResidence || null,
+        townVillage: d.townVillage || null,
+        gpsLatitude: d.gpsLatitude,
+        gpsLongitude: d.gpsLongitude,
+        caregiverName: d.caregiverName,
+        caregiverRelationship: d.caregiverRelationship || null,
+        caregiverPhone: d.caregiverPhone || null,
+        caregiverPhone2: d.caregiverPhone2 || null,
+        consentClinicalCare: !!d.consentClinicalCare,
+        consentResearch: !!d.consentResearch,
+        consentDataSharing: !!d.consentDataSharing,
+        consentDate: d.consentClinicalCare || d.consentResearch || d.consentDataSharing ? new Date().toISOString().slice(0, 10) : null,
         registeredByUserId: user.id,
         syncStatus: "pending",
-      } as any)
+      })
       .returning();
 
-    // Create diagnosis if cleft type provided
-    if (validatedData.cleftType) {
+    if (d.cleftType) {
       await db.insert(diagnoses).values({
         patientId: newPatient.id,
-        diagnosisDate: new Date().toISOString().split("T")[0],
+        diagnosisDate: new Date().toISOString().slice(0, 10),
         diagnosedAtBirth: true,
-        cleftType: validatedData.cleftType,
-        lipInvolved: validatedData.cleftType !== "cleft_palate_only",
-        lipLaterality: validatedData.lipLaterality || null,
-        palateInvolved: validatedData.cleftType !== "cleft_lip_only",
+        cleftType: d.cleftType,
+        lipInvolved: d.cleftType !== "cleft_palate_only",
+        lipLaterality: d.lipLaterality || null,
+        palateInvolved: d.cleftType !== "cleft_lip_only",
         diagnosedByUserId: user.id,
         syncStatus: "pending",
       });
     }
 
-    // Add to sync queue
-    await db.insert(syncQueue).values({
-      tableName: "patients",
-      recordLocalId: newPatient.localId,
-      operation: "create",
-      payload: newPatient,
-      priority: 1,
-    });
+    await enqueue("patients", newPatient.localId);
+    await logAudit({ userId: user.id, action: "create_patient", tableName: "patients", recordId: newPatient.id, newValues: { localId: newPatient.localId } });
+    syncSoon();
 
-    await logAudit(user.id, "create", "patients", newPatient.id, null, { localId: newPatient.localId }, request);
-
-    return addSecurityHeaders(
-      NextResponse.json(newPatient, { status: 201 })
-    );
+    return NextResponse.json(newPatient, { status: 201 });
   } catch (error) {
-    console.error("Error creating patient:", error);
-    
-    if (error instanceof z.ZodError) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Validation error", details: error.issues }, { status: 400 })
-      );
-    }
-
-    return addSecurityHeaders(
-      NextResponse.json({ error: "Failed to create patient" }, { status: 500 })
-    );
+    return apiError(error, "Failed to create patient");
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-      );
-    }
+    const user = await requirePermission("patients.view");
+    if (user instanceof NextResponse) return user;
 
-    const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get("page") || "1", 10);
-    const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10), 100);
-    const offset = (page - 1) * limit;
+    const sp = request.nextUrl.searchParams;
+    const page = Math.max(1, Number(sp.get("page")) || 1);
+    const limit = Math.min(Math.max(Number(sp.get("limit")) || 50, 1), 100);
+    const q = sp.get("q")?.trim().slice(0, 100);
+    const where = q ? or(like(patients.firstName, `%${q}%`), like(patients.lastName, `%${q}%`), like(patients.ncrId, `%${q}%`)) : undefined;
 
-    const [patientList, totalCount] = await Promise.all([
-      db.select().from(patients).orderBy(desc(patients.createdAt)).limit(limit).offset(offset),
-      db.select({ count: count() }).from(patients),
+    const [list, total] = await Promise.all([
+      db.select().from(patients).where(where).orderBy(desc(patients.createdAt)).limit(limit).offset((page - 1) * limit),
+      db.select({ count: count() }).from(patients).where(where),
     ]);
-
-    return addSecurityHeaders(
-      NextResponse.json({
-        patients: patientList,
-        pagination: {
-          page,
-          limit,
-          total: totalCount[0]?.count || 0,
-          totalPages: Math.ceil((totalCount[0]?.count || 0) / limit),
-        },
-      })
-    );
+    const n = total[0]?.count || 0;
+    return NextResponse.json({ patients: list, pagination: { page, limit, total: n, totalPages: Math.ceil(n / limit) } });
   } catch (error) {
-    console.error("Error fetching patients:", error);
-    return addSecurityHeaders(
-      NextResponse.json({ error: "Failed to fetch patients" }, { status: 500 })
-    );
+    return apiError(error, "Failed to fetch patients");
   }
 }

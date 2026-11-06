@@ -122,6 +122,8 @@ export const facilityConfig = sqliteTable("facility_config", {
   apiKey: varchar("api_key"),
   apiKeyHash: varchar("api_key_hash"),
   lastSyncAt: timestamp("last_sync_at"),
+  lastPullAt: timestamp("last_pull_at"),
+  lastSyncError: text("last_sync_error"),
   syncEnabled: boolean("sync_enabled").default(true),
   createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
   updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
@@ -191,6 +193,11 @@ export const patients = sqliteTable("patients", {
   caregiverPhone2: varchar("caregiver_phone_2"),
   isDeceased: boolean("is_deceased").default(false),
   deceasedDate: dateColumn("deceased_date"),
+  isLostToFollowUp: boolean("is_lost_to_follow_up").default(false),
+  consentClinicalCare: boolean("consent_clinical_care").default(false),
+  consentResearch: boolean("consent_research").default(false),
+  consentDataSharing: boolean("consent_data_sharing").default(false),
+  consentDate: dateColumn("consent_date"),
   syncStatus: syncStatusEnum("sync_status").default("pending"),
   syncedAt: timestamp("synced_at"),
   syncError: text("sync_error"),
@@ -238,8 +245,11 @@ export const surgeries = sqliteTable("surgeries", {
   complicationsDetails: text("complications_details"),
   dischargeDate: dateColumn("discharge_date"),
   dischargeCondition: varchar("discharge_condition"),
+  // "local" = recorded here; "main_hub" = received from the Main Hub via pull (never pushed back)
+  origin: varchar("origin").default("local"),
   syncStatus: syncStatusEnum("sync_status").default("pending"),
   syncedAt: timestamp("synced_at"),
+  syncError: text("sync_error"),
   createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
   updatedAt: timestamp("updated_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
@@ -259,22 +269,7 @@ export const syncQueue = sqliteTable("sync_queue", {
   createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
 });
 
-export const rateLimits = sqliteTable("rate_limits", {
-  id: serial("id"),
-  identifier: varchar("identifier").notNull(),
-  endpoint: varchar("endpoint").notNull(),
-  requestCount: integer("request_count").default(1),
-  windowStart: timestamp("window_start").default(sql`(strftime('%s', 'now'))`).notNull(),
-  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
-});
 
-export const blockedIps = sqliteTable("blocked_ips", {
-  id: serial("id"),
-  ipAddress: varchar("ip_address").notNull().unique(),
-  reason: text("reason"),
-  blockedUntil: timestamp("blocked_until"),
-  createdAt: timestamp("created_at").default(sql`(strftime('%s', 'now'))`).notNull(),
-});
 
 export const patientsRelations = relations(patients, ({ one, many }) => ({
   registeredBy: one(users, { fields: [patients.registeredByUserId], references: [users.id] }),

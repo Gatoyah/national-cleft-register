@@ -1,3 +1,4 @@
+import { requirePagePermission } from "@/lib/auth";
 import { db, appointments, patients } from "@/db";
 import { desc, eq, gte, and, count } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -63,6 +64,7 @@ async function getAppointments(view: string = "upcoming", page: number = 1) {
 }
 
 export default async function AppointmentsPage({ searchParams }: PageProps) {
+  await requirePagePermission("appointments.view");
   const params = await searchParams;
   const view = params.view || "upcoming";
   const page = parseInt(params.page || "1", 10);

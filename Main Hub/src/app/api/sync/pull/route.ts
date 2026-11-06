@@ -1,116 +1,90 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, patients, surgeries, facilities } from "@/db";
-import { validateApiKey } from "@/lib/auth";
+import { db, patients, surgeries } from "@/db";
+import { and, eq, gte, inArray, isNull, ne, or } from "drizzle-orm";
 import { logAudit } from "@/lib/audit";
-import { eq, desc } from "drizzle-orm";
+import { authenticateSync } from "@/lib/sync-auth";
+import { apiError } from "@/lib/api";
 
-// Endpoint for regional hubs to pull data from main hub
+/**
+ * GET /api/sync/pull?since=<ISO timestamp>
+ *
+ * Gives a Regional Hub the Main Hub's view of the patients THAT HUB registered:
+ *  - official NCR IDs and status changes (deceased, lost to follow-up), and
+ *  - surgeries recorded for them elsewhere (e.g. at the Main Hub after referral).
+ * A hub never receives patients registered by other facilities.
+ * Use the returned `serverTime` as `since` next time.
+ */
 export async function GET(request: NextRequest) {
   try {
-    // Require valid API key in Authorization: Bearer <key> header
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
-        { error: "Unauthorized. Missing or invalid Authorization header." },
-        { status: 401 }
-      );
-    }
+    const facility = await authenticateSync(request);
+    if (facility instanceof NextResponse) return facility;
 
-    const rawKey = authHeader.substring(7).trim();
-    const keyResult = await validateApiKey(rawKey);
-    if (!keyResult) {
-      // Log unauthorized pull attempt
-      await logAudit({
-        userId: null,
-        action: "sync_pull_unauthorized",
-        tableName: "facilities",
-      });
+    const sinceRaw = request.nextUrl.searchParams.get("since");
+    const sinceParsed = sinceRaw ? new Date(sinceRaw) : new Date(0);
+    const since = Number.isNaN(sinceParsed.getTime()) ? new Date(0) : sinceParsed;
+    const serverTime = new Date();
 
-      return NextResponse.json(
-        { error: "Unauthorized. Invalid API key." },
-        { status: 401 }
-      );
-    }
-
-    const facilityId = keyResult.facilityId;
-
-    // Verify facility exists
-    const [facility] = await db
-      .select()
-      .from(facilities)
-      .where(eq(facilities.id, facilityId))
-      .limit(1);
-
-    if (!facility) {
-      return NextResponse.json(
-        { error: "Facility associated with the API key was not found" },
-        { status: 404 }
-      );
-    }
-
-    // Get patients registered at this facility that have been updated
-    let patientsQuery = db
+    const patientRows = await db
       .select({
         id: patients.id,
+        localId: patients.sourceLocalId,
         ncrId: patients.ncrId,
-        firstName: patients.firstName,
-        lastName: patients.lastName,
-        dateOfBirth: patients.dateOfBirth,
-        sex: patients.sex,
-        regionOfResidence: patients.regionOfResidence,
+        isDeceased: patients.isDeceased,
+        deceasedDate: patients.deceasedDate,
+        isLostToFollowUp: patients.isLostToFollowUp,
         updatedAt: patients.updatedAt,
       })
       .from(patients)
-      .where(eq(patients.registeredAtFacilityId, facility.id))
-      .orderBy(desc(patients.updatedAt))
-      .limit(100);
+      .where(and(eq(patients.registeredAtFacilityId, facility.id), gte(patients.updatedAt, since)))
+      .limit(1000);
 
-    // Get surgeries performed at this facility
-    let surgeriesQuery = db
-      .select({
-        id: surgeries.id,
-        patientId: surgeries.patientId,
-        surgeryDate: surgeries.surgeryDate,
-        surgeryType: surgeries.surgeryType,
-        updatedAt: surgeries.updatedAt,
-      })
-      .from(surgeries)
-      .where(eq(surgeries.facilityId, facility.id))
-      .orderBy(desc(surgeries.updatedAt))
-      .limit(100);
+    // Surgeries for this hub's patients that did NOT originate from this hub.
+    const ownPatients = await db
+      .select({ id: patients.id, localId: patients.sourceLocalId })
+      .from(patients)
+      .where(eq(patients.registeredAtFacilityId, facility.id));
+    const localIdByPatient = new Map(ownPatients.map((p) => [p.id, p.localId]));
 
-    const [patientList, surgeryList] = await Promise.all([
-      patientsQuery,
-      surgeriesQuery,
-    ]);
+    const surgeryRows = ownPatients.length
+      ? await db
+          .select({
+            id: surgeries.id,
+            patientId: surgeries.patientId,
+            surgeryDate: surgeries.surgeryDate,
+            surgeryType: surgeries.surgeryType,
+            isPrimarySurgery: surgeries.isPrimarySurgery,
+            procedureDescription: surgeries.procedureDescription,
+            surgeonName: surgeries.surgeonName,
+            durationMinutes: surgeries.durationMinutes,
+            complications: surgeries.intraopComplications,
+            complicationsDetails: surgeries.intraopComplicationsDetails,
+            dischargeDate: surgeries.dischargeDate,
+            dischargeCondition: surgeries.dischargeCondition,
+            updatedAt: surgeries.updatedAt,
+          })
+          .from(surgeries)
+          .where(
+            and(
+              inArray(surgeries.patientId, [...localIdByPatient.keys()]),
+              or(isNull(surgeries.sourceFacilityId), ne(surgeries.sourceFacilityId, facility.id)),
+              gte(surgeries.updatedAt, since)
+            )
+          )
+          .limit(1000)
+      : [];
 
-    // Log successful pull
-    await logAudit({
-      userId: null,
-      action: "sync_pull_success",
-      tableName: "facilities",
-      recordId: facility.id,
-      newValues: { facilityCode: facility.code },
-    });
+    await logAudit({ userId: null, action: "sync_pull", tableName: "facilities", recordId: facility.id, newValues: { facility: facility.code, patients: patientRows.length, surgeries: surgeryRows.length } });
 
     return NextResponse.json({
       success: true,
-      timestamp: new Date().toISOString(),
-      facility: {
-        id: facility.id,
-        code: facility.code,
-        name: facility.name,
-      },
+      serverTime: serverTime.toISOString(),
+      facility: { id: facility.id, code: facility.code, name: facility.name },
       data: {
-        patients: patientList,
-        surgeries: surgeryList,
+        patients: patientRows.filter((p) => p.localId),
+        surgeries: surgeryRows.map((s) => ({ ...s, remoteId: `mh-${s.id}`, patientLocalId: localIdByPatient.get(s.patientId) })),
       },
     });
   } catch (error) {
-    console.error("Pull error:", error);
-    return NextResponse.json(
-      { error: "Failed to pull data" },
-      { status: 500 }
-    );
+    return apiError(error, "Failed to pull data");
   }
 }

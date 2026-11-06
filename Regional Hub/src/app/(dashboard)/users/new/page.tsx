@@ -1,56 +1,39 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
+import Link from "next/link";
+import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { Button } from "@/components/ui/Button";
-
-const roles = [
-  { value: "admin", label: "Administrator - Full system access" },
-  { value: "surgeon", label: "Surgeon - Can record surgeries" },
-  { value: "clinician", label: "Clinician - Can manage patients" },
-  { value: "data_clerk", label: "Data Clerk - Can enter patient data" },
-  { value: "viewer", label: "Viewer - Read-only access" },
-];
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { useCsrf } from "@/hooks/useCsrf";
+import { ErrorBox, PASSWORD_HINT, describeApiError } from "@/components/AuthShell";
+import { ROLES, ROLE_DESCRIPTIONS } from "@/lib/permissions";
+import { getUserRoleLabel } from "@/lib/utils";
 
 export default function NewUserPage() {
-  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<{ message: string; details: string[] }>({ message: "", details: [] });
+  const [created, setCreated] = useState<{ email: string; temporaryPassword?: string } | null>(null);
+  const { getCsrfHeaders } = useCsrf();
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setIsLoading(true);
-    setError("");
-
-    const formData = new FormData(e.currentTarget);
-    const data = Object.fromEntries(
-      Array.from(formData.entries()).filter(([, value]) => value !== "")
-    );
-
-    if (data.password !== data.confirmPassword) {
-      setError("Passwords do not match");
-      setIsLoading(false);
-      return;
-    }
-
+    setError({ message: "", details: [] });
+    const form = e.currentTarget;
+    const data = Object.fromEntries(Array.from(new FormData(form).entries()).filter(([, v]) => v !== ""));
     try {
-      const res = await fetch("/api/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-
+      const res = await fetch("/api/users", { method: "POST", headers: getCsrfHeaders(), body: JSON.stringify(data) });
+      const body = await res.json();
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to create user");
+        setError(describeApiError(body));
+        return;
       }
-
-      router.push("/users");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+      setCreated({ email: body.email, temporaryPassword: body.temporaryPassword });
+      form.reset();
+    } catch {
+      setError({ message: "Could not reach the server", details: [] });
     } finally {
       setIsLoading(false);
     }
@@ -59,59 +42,78 @@ export default function NewUserPage() {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Create User</h1>
-        <p className="text-gray-500 mt-1">Add a new user to this regional hub</p>
+        <h1 className="text-2xl font-bold text-gray-900">Create New User</h1>
+        <p className="text-gray-500 mt-1">Give a colleague their own account. Each role only sees what it needs.</p>
       </div>
 
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-          {error}
+      {created && (
+        <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 text-sm space-y-1">
+          <p className="font-medium">Account created for {created.email}.</p>
+          {created.temporaryPassword ? (
+            <p>
+              Temporary password (shown only once — give it to the user privately):{" "}
+              <code className="px-2 py-1 bg-white border rounded font-mono select-all">{created.temporaryPassword}</code>
+            </p>
+          ) : (
+            <p>Give the user the password you chose.</p>
+          )}
+          <p>They will be asked to choose their own password the first time they sign in.</p>
+          <p><Link href="/users" className="underline">Back to user list</Link></p>
         </div>
       )}
+
+      <ErrorBox message={error.message} details={error.details} />
 
       <form onSubmit={handleSubmit}>
         <Card>
           <CardHeader>
             <CardTitle>User Information</CardTitle>
-            <CardDescription>User must change password on first login</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <Input label="First Name" name="firstName" required />
               <Input label="Last Name" name="lastName" required />
             </div>
-            <Input label="Email" name="email" type="email" required />
-            <Select label="Role" name="role" options={roles} required placeholder="Select role" />
-            <Input label="Phone" name="phone" type="tel" />
-            <Input label="Professional ID" name="professionalId" placeholder="License number" />
-            
-            <hr className="my-4" />
-            
-            <Input 
-              label="Password" 
-              name="password" 
-              type="password" 
-              required 
-              hint="Minimum 12 characters"
+            <Input label="Email Address" name="email" type="email" required hint="Used to sign in" />
+            <Input
+              label="Initial password (optional)"
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              hint={`Leave empty to generate a strong temporary password. ${PASSWORD_HINT}`}
             />
-            <Input 
-              label="Confirm Password" 
-              name="confirmPassword" 
-              type="password" 
-              required 
+            <Select
+              label="Role"
+              name="role"
+              required
+              placeholder="Select user role"
+              options={ROLES.map((r) => ({ value: r, label: `${getUserRoleLabel(r)} — ${ROLE_DESCRIPTIONS[r]}` }))}
             />
-
+            <Input label="Phone Number" name="phone" type="tel" />
+            <Input label="Professional ID" name="professionalId" placeholder="Medical licence or staff ID" />
             <div className="flex justify-end gap-4 pt-4">
-              <Button type="button" variant="outline" onClick={() => router.back()}>
-                Cancel
-              </Button>
-              <Button type="submit" isLoading={isLoading}>
-                Create User
-              </Button>
+              <Link href="/users"><Button type="button" variant="outline">Cancel</Button></Link>
+              <Button type="submit" isLoading={isLoading}>Create User</Button>
             </div>
           </CardContent>
         </Card>
       </form>
+
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>What each role can do</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2 text-sm">
+            {ROLES.map((r) => (
+              <div key={r} className="p-3 bg-gray-50 rounded-lg">
+                <p className="font-medium">{getUserRoleLabel(r)}</p>
+                <p className="text-gray-600">{ROLE_DESCRIPTIONS[r]}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

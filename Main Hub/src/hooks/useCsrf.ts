@@ -24,8 +24,17 @@ export function useCsrf() {
   }, []);
 
   useEffect(() => {
-    fetchToken();
-  }, [fetchToken]);
+    let active = true;
+    fetch("/api/auth/csrf")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data?.csrfToken) setCsrfToken(data.csrfToken);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   /**
    * Returns headers object including the CSRF token.

@@ -1,3 +1,4 @@
+import { requirePagePermission } from "@/lib/auth";
 import { db, facilities, patients, surgeries, auditLogs } from "@/db";
 import { eq, count, desc, sql } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
@@ -27,6 +28,7 @@ async function getSyncStats() {
 }
 
 export default async function SyncPage() {
+  await requirePagePermission("sync.view");
   const stats = await getSyncStats();
 
   return (

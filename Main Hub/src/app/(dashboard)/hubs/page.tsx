@@ -1,3 +1,5 @@
+import { RotateKeyButton } from "@/components/RotateKeyButton";
+import { requirePagePermission } from "@/lib/auth";
 import { db, facilities, patients, surgeries } from "@/db";
 import { eq, count, desc } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
@@ -36,6 +38,7 @@ async function getHubsWithStats() {
 }
 
 export default async function HubsPage() {
+  await requirePagePermission("hubs.manage");
   const hubs = await getHubsWithStats();
 
   const hubsByType = {
@@ -195,9 +198,7 @@ export default async function HubsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Link href={`/hubs/${hub.id}`} className="text-emerald-600 hover:underline text-sm">
-                        View
-                      </Link>
+                      <RotateKeyButton hubId={hub.id} code={hub.code} />
                     </TableCell>
                   </TableRow>
                 ))

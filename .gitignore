@@ -27,3 +27,8 @@ tsconfig.tsbuildinfo
 # Packaged deployment output (regenerate with package-for-deployment.sh)
 /dist/
 
+
+# Runtime files that must never be committed
+setup-token.txt
+backups/
+test-results/

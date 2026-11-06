@@ -1,3 +1,5 @@
+import { hasPermission } from "@/lib/permissions";
+import { requirePagePermission } from "@/lib/auth";
 import { db, researchProjects, publications, dataExtracts } from "@/db";
 import { desc, count, eq } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
@@ -28,6 +30,8 @@ async function getResearchData() {
 }
 
 export default async function ResearchPage() {
+  const user = await requirePagePermission("research.view");
+  const canFull = hasPermission(user.role, "export.full");
   const data = await getResearchData();
 
   const statusColors: Record<string, "default" | "info" | "warning" | "success" | "danger"> = {
@@ -46,15 +50,25 @@ export default async function ResearchPage() {
           <h1 className="text-2xl font-bold text-gray-900">Research & Publications</h1>
           <p className="text-gray-500 mt-1">Manage research projects, data extracts, and publications</p>
         </div>
-        <div className="flex gap-2">
-          <Link href="/research/extract/new">
-            <Button variant="outline">Request Data Extract</Button>
-          </Link>
-          <Link href="/research/projects/new">
-            <Button>New Research Project</Button>
-          </Link>
-        </div>
       </div>
+
+      {/* Data export for analysis */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Download data for analysis (CSV)</CardTitle>
+          <CardDescription>
+            De-identified exports contain only patients whose caregivers consented to research. They have no names,
+            phone or ID numbers, exact birth dates, towns or GPS; each patient has a stable pseudonymous research ID.
+            Every download is recorded in the audit log.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-3">
+          <a href="/api/export?type=deidentified&dataset=patients"><Button variant="outline">De-identified patients</Button></a>
+          <a href="/api/export?type=deidentified&dataset=surgeries"><Button variant="outline">De-identified surgeries</Button></a>
+          {canFull && <a href="/api/export?type=full&dataset=patients"><Button variant="danger">Full identifiable patients (admin)</Button></a>}
+          {canFull && <a href="/api/export?type=full&dataset=surgeries"><Button variant="danger">Full identifiable surgeries (admin)</Button></a>}
+        </CardContent>
+      </Card>
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

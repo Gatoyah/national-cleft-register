@@ -1,8 +1,10 @@
+import { requirePagePermission } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  await requirePagePermission("settings.view");
   return (
     <div className="space-y-6 max-w-4xl">
       <div>

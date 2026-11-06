@@ -1,3 +1,5 @@
+import { requirePageUser } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
 import { db, patients, surgeries, diagnoses, facilities } from "@/db";
 import { eq, count, sql, gte, and, desc } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -123,9 +125,12 @@ async function getMonthlyTrends() {
 }
 
 export default async function DashboardPage() {
+  const user = await requirePageUser();
+  // Roles without patient access (researcher, viewer) only see aggregate numbers.
+  const showPatients = hasPermission(user.role, "patients.view");
   const [stats, recentPatients, cleftTypes, regions, trends] = await Promise.all([
     getStats(),
-    getRecentRegistrations(),
+    showPatients ? getRecentRegistrations() : Promise.resolve([]),
     getCleftTypeDistribution(),
     getRegionalDistribution(),
     getMonthlyTrends(),
@@ -284,6 +289,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* Recent Registrations */}
+      {showPatients && (
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -341,6 +347,7 @@ export default async function DashboardPage() {
           </Table>
         </CardContent>
       </Card>
+      )}
 
       {/* Monthly Trends */}
       {trends.length > 0 && (

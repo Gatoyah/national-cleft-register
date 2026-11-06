@@ -1,3 +1,4 @@
+import { requirePagePermission } from "@/lib/auth";
 import { db, users } from "@/db";
 import { desc, count, eq } from "drizzle-orm";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -36,6 +37,7 @@ const roleLabels: Record<string, string> = {
 };
 
 export default async function UsersPage() {
+  await requirePagePermission("users.manage");
   const { users: userList, activeCount } = await getUsers();
 
   return (
@@ -59,12 +61,13 @@ export default async function UsersPage() {
               <TableHead>Role</TableHead>
               <TableHead>Last Login</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {userList.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-gray-500 py-12">
+                <TableCell colSpan={6} className="text-center text-gray-500 py-12">
                   No users found
                 </TableCell>
               </TableRow>
@@ -83,6 +86,9 @@ export default async function UsersPage() {
                     <Badge variant={user.isActive ? "success" : "danger"}>
                       {user.isActive ? "Active" : "Inactive"}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/users/${user.id}`} className="text-gray-600 hover:text-emerald-600">Edit</Link>
                   </TableCell>
                 </TableRow>
               ))

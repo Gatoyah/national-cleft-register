@@ -1,3 +1,4 @@
+import { requirePagePermission } from "@/lib/auth";
 import { db, followUpAlerts, patients } from "@/db";
 import { desc, eq, count, and } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -52,6 +53,7 @@ async function getAlerts(filter: string = "pending") {
 }
 
 export default async function AlertsPage({ searchParams }: PageProps) {
+  await requirePagePermission("alerts.view");
   const params = await searchParams;
   const filter = params.filter || "pending";
   const { alerts, pendingCount } = await getAlerts(filter);

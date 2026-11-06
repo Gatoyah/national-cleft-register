@@ -1,66 +1,40 @@
 /**
- * Input sanitisation utilities to prevent XSS attacks.
- * Strips HTML tags and encodes special characters in user-provided strings.
+ * Input normalisation.
+ *
+ * We deliberately do NOT HTML-escape or strip characters before storing data:
+ * that corrupts real patient data (e.g. "O'Brien" -> "O&#x27;Brien") and
+ * breaks research analysis. XSS is prevented at output time instead — React
+ * escapes everything it renders, and no page uses dangerouslySetInnerHTML.
+ * SQL injection is prevented by Drizzle's parameterised queries.
+ *
+ * Here we only trim whitespace, remove control characters (incl. NUL) and cap
+ * string length so nothing malformed reaches the database.
  */
 
-const HTML_ENTITY_MAP: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#x27;",
-  "/": "&#x2F;",
-};
+const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+const MAX_STRING_LENGTH = 10_000;
 
-const HTML_SPECIAL_CHARS_REGEX = /[&<>"'/]/g;
-
-/**
- * Encode HTML special characters in a string to prevent XSS.
- */
-export function escapeHtml(input: string): string {
-  return input.replace(
-    HTML_SPECIAL_CHARS_REGEX,
-    (char) => HTML_ENTITY_MAP[char] || char
-  );
-}
-
-/**
- * Strip all HTML tags from a string.
- */
-export function stripHtmlTags(input: string): string {
-  return input.replace(/<[^>]*>/g, "");
-}
-
-/**
- * Sanitise a single string value: strip HTML tags and encode special characters.
- */
 export function sanitizeString(input: string): string {
-  return escapeHtml(stripHtmlTags(input.trim()));
+  return input.replace(CONTROL_CHARS, "").trim().slice(0, MAX_STRING_LENGTH);
 }
 
-/**
- * Recursively sanitise all string values in an object.
- * Returns a new object with sanitised string values.
- * Non-string values are passed through unchanged.
- */
+export function sanitizeValue(value: unknown): unknown {
+  if (typeof value === "string") return sanitizeString(value);
+  if (Array.isArray(value)) return value.map(sanitizeValue);
+  if (value !== null && typeof value === "object") return sanitizeObject(value as Record<string, unknown>);
+  return value;
+}
+
 export function sanitizeObject<T extends Record<string, unknown>>(obj: T): T {
   const result: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === "string") {
-      result[key] = sanitizeString(value);
-    } else if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-      result[key] = sanitizeObject(value as Record<string, unknown>);
-    } else if (Array.isArray(value)) {
-      result[key] = value.map((item) => {
-        if (typeof item === "string") return sanitizeString(item);
-        if (item !== null && typeof item === "object") return sanitizeObject(item as Record<string, unknown>);
-        return item;
-      });
-    } else {
-      result[key] = value;
-    }
+  for (const [key, value] of Object.entries(obj ?? {})) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    result[key] = sanitizeValue(value);
   }
-
   return result as T;
+}
+
+/** Convert "" to null so optional fields are stored as NULL, not empty strings. */
+export function emptyToNull<T>(value: T | "" | undefined): T | null {
+  return value === "" || value === undefined ? null : (value as T);
 }

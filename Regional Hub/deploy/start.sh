@@ -1,38 +1,29 @@
 #!/bin/bash
-# National Cleft Registry -- Regional Hub launcher
-# Run this script to start the server: ./start.sh
-# The app will be available at http://localhost:3001
-
+# National Cleft Registry -- Regional Hub launcher.  Run:  ./start.sh
+# The app will be available at http://localhost:3001 (and http://<this-pc-ip>:3001 on the network)
 set -e
 cd "$(dirname "$0")"
 APPDIR="$(pwd)"
 
-if [ ! -f ".env" ]; then
-  echo
-  echo "ERROR: .env file not found."
-  echo "Copy .env.example to .env and fill in real secret values before first run."
-  echo
-  exit 1
-fi
-
 NODE_BIN="./node/bin/node"
-if [ ! -x "$NODE_BIN" ]; then
-  NODE_BIN="node"
+[ -x "$NODE_BIN" ] || NODE_BIN="node"
+if ! command -v "$NODE_BIN" >/dev/null 2>&1; then
+  echo "ERROR: Node.js not found. Put a portable Node.js in ./node (see DEPLOY.md)."; exit 1
 fi
 
-# Force an absolute database path based on THIS folder's real location,
-# regardless of what's written in .env. This avoids a relative "file:" path
-# being resolved inconsistently between the setup script and the compiled
-# server bundle.
+# 1. Create .env with fresh random secrets on first run (never overwrites real values).
+"$NODE_BIN" setup-env.mjs
+
+# 2. Absolute database path based on this folder's real location.
 export DATABASE_URL="file:$APPDIR/local.db"
+export NODE_ENV=production
 
-if [ ! -f "local.db" ]; then
-  echo "First run detected -- setting up the database..."
-  "$NODE_BIN" init-db.mjs
-fi
+# 3. Back up the existing database, then apply any new migrations (safe every start).
+[ -f local.db ] && "$NODE_BIN" backup.mjs || true
+"$NODE_BIN" init-db.mjs
 
 echo "Starting National Cleft Registry - Regional Hub..."
-echo "Once you see \"Ready\", open http://localhost:3001 in your browser."
+echo "Once you see \"Ready\", open http://localhost:${PORT:-3001} in your browser."
+echo "On first run, the SETUP TOKEN for creating the administrator is printed below."
 echo
-
-PORT=3001 "$NODE_BIN" server.js
+PORT="${PORT:-3001}" HOSTNAME="${HOSTNAME_BIND:-0.0.0.0}" exec "$NODE_BIN" server.js

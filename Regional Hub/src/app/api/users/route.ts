@@ -1,93 +1,73 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, users } from "@/db";
-import { hashPassword, getCurrentUser, canManageUsers } from "@/lib/auth";
-import { logAudit, addSecurityHeaders, sanitizeObject } from "@/lib/security";
+import { hashPassword, requirePermission, requireMutation, validatePasswordStrength, generateRandomPassword } from "@/lib/auth";
+import { sanitizeObject } from "@/lib/sanitize";
+import { logAudit } from "@/lib/audit";
+import { apiError } from "@/lib/api";
+import { ROLES } from "@/lib/permissions";
 import { z } from "zod";
 import { desc } from "drizzle-orm";
 
 const createUserSchema = z.object({
-  email: z.string().email().max(255),
-  password: z.string().min(12).max(100), // Minimum 12 chars for security
-  firstName: z.string().min(1).max(100),
-  lastName: z.string().min(1).max(100),
-  role: z.enum(["admin", "clinician", "surgeon", "data_clerk", "viewer"]),
+  email: z.string().trim().toLowerCase().email("Invalid email").max(255),
+  // Optional: if omitted a strong temporary password is generated and shown once.
+  password: z.string().optional().or(z.literal("")),
+  firstName: z.string().min(1, "First name is required").max(100),
+  lastName: z.string().min(1, "Last name is required").max(100),
+  role: z.enum(ROLES),
   phone: z.string().max(20).optional(),
   professionalId: z.string().max(50).optional(),
 });
 
 export async function POST(request: NextRequest) {
   try {
-    const currentUser = await getCurrentUser();
-    if (!currentUser || !canManageUsers(currentUser.role)) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Unauthorized" }, { status: 403 })
-      );
-    }
+    const admin = await requireMutation(request, "users.manage");
+    if (admin instanceof NextResponse) return admin;
 
     const body = await request.json();
-    const sanitizedBody = sanitizeObject(body);
-    const validatedData = createUserSchema.parse(sanitizedBody);
+    const { password, ...rest } = body ?? {};
+    const data = createUserSchema.parse({ ...sanitizeObject(rest), password });
 
-    // Hash password
-    const passwordHash = await hashPassword(validatedData.password);
+    const generated = !data.password;
+    const initialPassword = data.password || generateRandomPassword();
+    const strength = validatePasswordStrength(initialPassword);
+    if (!strength.valid) {
+      return NextResponse.json({ error: "Password does not meet complexity requirements", details: strength.errors }, { status: 400 });
+    }
 
     const [newUser] = await db
       .insert(users)
       .values({
-        email: validatedData.email.toLowerCase(),
-        passwordHash,
-        firstName: validatedData.firstName,
-        lastName: validatedData.lastName,
-        role: validatedData.role,
-        phone: validatedData.phone || null,
-        professionalId: validatedData.professionalId || null,
+        email: data.email,
+        passwordHash: await hashPassword(initialPassword),
+        firstName: data.firstName,
+        lastName: data.lastName,
+        role: data.role,
+        phone: data.phone || null,
+        professionalId: data.professionalId || null,
         isActive: true,
-        mustChangePassword: true, // Force password change
+        // The person must choose their own password at first login.
+        mustChangePassword: true,
       })
-      .returning({
-        id: users.id,
-        email: users.email,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        role: users.role,
-      });
+      .returning({ id: users.id, email: users.email, firstName: users.firstName, lastName: users.lastName, role: users.role });
 
-    await logAudit(currentUser.id, "create", "users", newUser.id, null, { email: newUser.email }, request);
+    await logAudit({ userId: admin.id, action: "create_user", tableName: "users", recordId: newUser.id, newValues: { email: newUser.email, role: newUser.role } });
 
-    return addSecurityHeaders(
-      NextResponse.json(newUser, { status: 201 })
+    return NextResponse.json(
+      { ...newUser, ...(generated ? { temporaryPassword: initialPassword } : {}), mustChangePassword: true },
+      { status: 201 }
     );
   } catch (error) {
-    console.error("Error creating user:", error);
-
-    if (error instanceof z.ZodError) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Validation error", details: error.issues }, { status: 400 })
-      );
-    }
-
-    if (error instanceof Error && error.message.includes("unique")) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "A user with this email already exists" }, { status: 409 })
-      );
-    }
-
-    return addSecurityHeaders(
-      NextResponse.json({ error: "Failed to create user" }, { status: 500 })
-    );
+    return apiError(error, "Failed to create user");
   }
 }
 
 export async function GET() {
   try {
-    const currentUser = await getCurrentUser();
-    if (!currentUser || !canManageUsers(currentUser.role)) {
-      return addSecurityHeaders(
-        NextResponse.json({ error: "Unauthorized" }, { status: 403 })
-      );
-    }
+    const admin = await requirePermission("users.manage");
+    if (admin instanceof NextResponse) return admin;
 
-    const userList = await db
+    const list = await db
       .select({
         id: users.id,
         email: users.email,
@@ -95,17 +75,15 @@ export async function GET() {
         lastName: users.lastName,
         role: users.role,
         isActive: users.isActive,
+        mustChangePassword: users.mustChangePassword,
+        lockedUntil: users.lockedUntil,
         lastLoginAt: users.lastLoginAt,
         createdAt: users.createdAt,
       })
       .from(users)
       .orderBy(desc(users.createdAt));
-
-    return addSecurityHeaders(NextResponse.json(userList));
+    return NextResponse.json(list);
   } catch (error) {
-    console.error("Error fetching users:", error);
-    return addSecurityHeaders(
-      NextResponse.json({ error: "Failed to fetch users" }, { status: 500 })
-    );
+    return apiError(error, "Failed to fetch users");
   }
 }

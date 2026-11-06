@@ -1,0 +1,16 @@
+{
+  "name": "national-cleft-registry",
+  "private": true,
+  "description": "National Cleft Registry - Ghana: Main Hub + Regional Hub",
+  "scripts": {
+    "install:all": "npm --prefix \"Main Hub\" ci --no-audit --no-fund && npm --prefix \"Regional Hub\" ci --no-audit --no-fund",
+    "build": "npm --prefix \"Main Hub\" run build && npm --prefix \"Regional Hub\" run build",
+    "check": "npm --prefix \"Main Hub\" run typecheck && npm --prefix \"Main Hub\" run lint && npm --prefix \"Regional Hub\" run typecheck && npm --prefix \"Regional Hub\" run lint",
+    "test": "node tests/e2e.mjs && node tests/ui.mjs",
+    "test:api": "node tests/e2e.mjs",
+    "test:ui": "node tests/ui.mjs",
+    "package": "node package-for-deployment.mjs",
+    "package:windows": "node package-for-deployment.mjs --target win-x64 --with-node",
+    "package:linux": "node package-for-deployment.mjs --target linux-x64 --with-node"
+  }
+}
