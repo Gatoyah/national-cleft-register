@@ -100,8 +100,13 @@ async function downloadNode(dest) {
   }
   const tmp = join(cache, `x-${Date.now()}`);
   mkdirSync(tmp, { recursive: true });
-  execFileSync("tar", ["-xf", archive, "-C", tmp]); // bsdtar on Windows 10+ also handles .zip
+  if (T.ext === "zip" && !isWin) execFileSync("unzip", ["-q", archive, "-d", tmp]);
+  else execFileSync("tar", ["-xf", archive, "-C", tmp]); // bsdtar on Windows 10+ also handles .zip
   renameSync(join(tmp, name), dest);
+  // Only the runtime is needed on the hospital machine: drop npm, headers, docs.
+  for (const extra of ["include", "share", "lib/node_modules", "node_modules", "npm", "npm.cmd", "npx", "npx.cmd", "corepack", "corepack.cmd", "bin/npm", "bin/npx", "bin/corepack"]) {
+    rmSync(join(dest, extra), { recursive: true, force: true });
+  }
   rmSync(tmp, { recursive: true, force: true });
 }
 
@@ -150,6 +155,9 @@ for (const key of selected) {
   // 2. Static assets (not part of the standalone output).
   cpSync(join(src, ".next", "static"), join(dest, ".next", "static"), { recursive: true });
   if (existsSync(join(src, "public"))) cpSync(join(src, "public"), join(dest, "public"), { recursive: true });
+
+  // sharp is only used for next/image optimisation, which this app does not use.
+  for (const unused of ["sharp", "@img"]) rmSync(join(dest, "node_modules", unused), { recursive: true, force: true });
 
   // 3. Native SQLite driver for the target OS.
   const libsqlVersion = JSON.parse(readFileSync(join(dest, "node_modules", "libsql", "package.json"), "utf-8")).version;

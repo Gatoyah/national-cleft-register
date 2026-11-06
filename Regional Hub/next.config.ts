@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
   turbopack: { root: appRoot },
   // Do not advertise the framework in response headers.
   poweredByHeader: false,
+  // No next/image optimisation (so the native "sharp" module is never needed).
+  images: { unoptimized: true },
   async headers() {
     return [
       {
